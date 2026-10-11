@@ -1,0 +1,6 @@
+{
+  "name": "Real-Time Hidden Camera Detector",
+  "description": "Scan surroundings in real time using your device camera and on-device ML object detection to locate suspicious camera-like objects with instant danger alerts, audio alarms, optical glint analysis, and biometric security.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

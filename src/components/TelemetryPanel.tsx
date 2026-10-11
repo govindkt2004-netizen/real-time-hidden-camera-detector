@@ -1,0 +1,162 @@
+import React from 'react';
+import { DetectionResult } from '../services/detector';
+import { ShieldAlert, Crosshair, Activity, Camera, CheckCircle2, ShieldOff, Focus, Target } from 'lucide-react';
+
+interface Props {
+  isScanning: boolean;
+  threatDetected: boolean;
+  detections: DetectionResult[];
+  fps: number;
+  sensitivity: string;
+  ignoreMasksCount?: number;
+  ignoredCount?: number;
+}
+
+export const TelemetryPanel: React.FC<Props> = ({
+  isScanning,
+  threatDetected,
+  detections,
+  fps,
+  sensitivity,
+  ignoreMasksCount = 0,
+  ignoredCount = 0,
+}) => {
+  const cameraDetections = detections.filter(
+    (d) => d.isCameraTarget && d.threatLevel === 'DANGER' && !d.isIgnored
+  );
+  const ignoredDetections = detections.filter((d) => d.isIgnored);
+
+  // Compute center-most candidate if multiple camera threats exist
+  let centerMostIndex = -1;
+  if (cameraDetections.length > 1) {
+    let minCenterDistSq = Infinity;
+    cameraDetections.forEach((d, idx) => {
+      const [bx, by, bw, bh] = d.bbox;
+      const cx = bx + bw / 2;
+      const cy = by + bh / 2;
+      // Using standard 640x480 frame center default (320, 240)
+      const dSq = (cx - 320) ** 2 + (cy - 240) ** 2;
+      if (dSq < minCenterDistSq) {
+        minCenterDistSq = dSq;
+        centerMostIndex = idx;
+      }
+    });
+  }
+
+  return (
+    <div className="w-full rounded-2xl bg-slate-900/90 border border-slate-800 p-4 md:p-5 text-slate-200">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-red-500" />
+          <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
+            Camera Optical Radar & Telemetry
+          </h3>
+        </div>
+        <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
+          <span>
+            FPS: <strong className="text-slate-200 tabular-nums">{fps}</strong>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            SENSITIVITY: <strong className="text-slate-200 uppercase">{sensitivity}</strong>
+          </span>
+          {ignoreMasksCount > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-amber-400">
+                MASKS: <strong className="tabular-nums">{ignoreMasksCount}</strong>
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Verified Camera Targets */}
+        <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800">
+          <div className="flex items-center justify-between text-xs font-semibold mb-2">
+            <span className="text-red-400 flex items-center gap-1.5 font-mono">
+              <ShieldAlert className="w-4 h-4 text-red-500" />
+              DETECTED CAMERAS ({cameraDetections.length})
+            </span>
+            {threatDetected && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-mono font-bold animate-pulse">
+                DANGER DETECTED
+              </span>
+            )}
+          </div>
+
+          {cameraDetections.length === 0 ? (
+            <div className="py-4 text-center font-mono text-xs text-slate-500 flex flex-col items-center justify-center gap-1">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500/60" />
+              <span>{isScanning ? 'Zero cameras detected in field of view' : 'Scanner paused'}</span>
+              {ignoredDetections.length > 0 && (
+                <span className="text-[11px] text-amber-400/90 mt-1 flex items-center gap-1">
+                  <ShieldOff className="w-3.5 h-3.5" />
+                  <span>{ignoredDetections.length} candidate(s) safely ignored in masked zone</span>
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-36 overflow-y-auto">
+              {cameraDetections.map((d, i) => (
+                <div
+                  key={i}
+                  className="p-2.5 rounded-lg bg-red-950/40 border border-red-500/50 flex items-center justify-between text-xs font-mono"
+                >
+                  <div className="flex items-center gap-2">
+                    <Crosshair className="w-4 h-4 text-red-400 animate-spin" style={{ animationDuration: '4s' }} />
+                    <span className="font-bold text-red-200">{d.label}</span>
+                  </div>
+                  <span className="text-red-400 font-bold tabular-nums bg-red-950/80 px-2 py-0.5 rounded border border-red-800/40">
+                    {(d.score * 100).toFixed(1)}% CONFIDENCE
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Optical Sensor Status */}
+        <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5 font-mono text-xs">
+          <div className="flex items-center justify-between text-slate-300 font-semibold mb-1">
+            <span className="flex items-center gap-1.5">
+              <Camera className="w-4 h-4 text-emerald-400" />
+              <span>NEURAL OPTICAL SENSOR STATUS</span>
+            </span>
+            <span className="text-emerald-400 text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-800/40">
+              ACTIVE
+            </span>
+          </div>
+
+          <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+            <span>Model Architecture:</span>
+            <span className="text-slate-200">TensorFlow.js Dual-Scale</span>
+          </div>
+
+          <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+            <span>Target Filter:</span>
+            <span className="text-red-300 font-semibold">Camera Optical Lenses Only</span>
+          </div>
+
+          <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+            <span>Ignore Masks (False-Positives):</span>
+            <span className="text-amber-300 font-semibold flex items-center gap-1">
+              <ShieldOff className="w-3.5 h-3.5 text-amber-400" />
+              <span>
+                {ignoreMasksCount > 0 ? `${ignoreMasksCount} Active Zone(s)` : 'None (Click Draw Mask)'}
+              </span>
+            </span>
+          </div>
+
+          <div className="flex justify-between py-1 text-slate-400">
+            <span>Shielded Detections:</span>
+            <span className={ignoredCount > 0 ? 'text-amber-400 font-bold' : 'text-slate-400'}>
+              {ignoredCount > 0 ? `${ignoredCount} False-Alarm(s) Blocked` : '0 Blocked'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
