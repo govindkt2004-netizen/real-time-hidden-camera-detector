@@ -66,7 +66,7 @@ export const IgnoreMaskBar: React.FC<Props> = ({
             <span className="text-[11px] text-slate-400">
               {isDrawing
                 ? 'Click & drag across camera feed to mask known mirrors, windows, or TV screens'
-                : 'Skips detections in selected regions to eliminate reflection false positives'}
+                : 'Ignores detections in selected regions to reduce reflection-related false alerts'}
             </span>
           </div>
         </div>

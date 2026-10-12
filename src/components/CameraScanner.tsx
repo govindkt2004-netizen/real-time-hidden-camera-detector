@@ -9,6 +9,7 @@ import {
   VolumeX,
   Play,
   Square,
+  PauseCircle,
   AlertTriangle,
   Radio,
   Eye,
@@ -63,6 +64,7 @@ interface Props {
   screenIlluminator: boolean;
   onToggleScreenIlluminator: () => void;
   onHardwareTorchStatusChange?: (hasTorch: boolean) => void;
+  onSetAlarmEnabled: (enabled: boolean) => void;
   ignoreMasks: IgnoreMask[];
   onAddIgnoreMask: (mask: IgnoreMask) => void;
   onRemoveIgnoreMask: (id: string) => void;
@@ -82,6 +84,7 @@ export const CameraScanner: React.FC<Props> = ({
   screenIlluminator,
   onToggleScreenIlluminator,
   onHardwareTorchStatusChange,
+  onSetAlarmEnabled,
   ignoreMasks,
   onAddIgnoreMask,
   onRemoveIgnoreMask,
@@ -93,7 +96,8 @@ export const CameraScanner: React.FC<Props> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [isScanning, setIsScanning] = useState<boolean>(true);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   const [modelReady, setModelReady] = useState<boolean>(false);
   const [modelLoading, setModelLoading] = useState<boolean>(true);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -104,7 +108,7 @@ export const CameraScanner: React.FC<Props> = ({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
 
-  const [lastDetections, setLastDetections] = useState<DetectionResult[]>([]);
+  const lastDetectionsRef = useRef<DetectionResult[]>([]);
   const [fps, setFps] = useState<number>(0);
   const [threatActive, setThreatActive] = useState<boolean>(false);
 
@@ -128,12 +132,11 @@ export const CameraScanner: React.FC<Props> = ({
   const [currentZoom, setCurrentZoom] = useState<number>(1.0);
   const [zoomOrigin, setZoomOrigin] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
   const [centerLock, setCenterLock] = useState<CenterLockInfo | null>(null);
-  const [simulatedMultiThreats, setSimulatedMultiThreats] = useState<boolean>(false);
+  const [testDistance, setTestDistance] = useState<'near' | '10' | '15' | '20'>('near');
 
   // Mutable refs for frame loop
   const autoZoomEnabledRef = useRef<boolean>(true);
   const zoomLevelRef = useRef<number>(1.45);
-  const simulatedMultiThreatsRef = useRef<boolean>(false);
   const isDrawingMaskRef = useRef<boolean>(isDrawingMask);
 
   useEffect(() => {
@@ -143,10 +146,6 @@ export const CameraScanner: React.FC<Props> = ({
   useEffect(() => {
     zoomLevelRef.current = zoomLevel;
   }, [zoomLevel]);
-
-  useEffect(() => {
-    simulatedMultiThreatsRef.current = simulatedMultiThreats;
-  }, [simulatedMultiThreats]);
 
   useEffect(() => {
     isDrawingMaskRef.current = isDrawingMask;
@@ -162,7 +161,13 @@ export const CameraScanner: React.FC<Props> = ({
   const animFrameId = useRef<number | null>(null);
   const lastFrameTime = useRef<number>(performance.now());
   const frameCount = useRef<number>(0);
+  const fpsRef = useRef<number>(0);
   const lastThreatLoggedTime = useRef<number>(0);
+  const lastInferenceTime = useRef<number>(0);
+  const lastStatusPublishTime = useRef<number>(0);
+  const lastPublishedThreat = useRef<boolean>(false);
+  const lastPublishedThreatCount = useRef<number>(0);
+  const zoomOriginRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 });
 
   // Strobe timer reference
   const strobeTimerRef = useRef<number | null>(null);
@@ -211,17 +216,33 @@ export const CameraScanner: React.FC<Props> = ({
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera API (getUserMedia) is not supported in this browser environment. Ensure HTTPS is used.');
+        throw new Error('Camera access is unavailable. Open this page in a supported mobile browser over HTTPS (or localhost), then allow camera permission.');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      const videoConstraints: MediaTrackConstraints = {
+        facingMode: { ideal: facingMode },
+        width: { ideal: settings.cameraResolution === 'high' ? 1920 : 1280 },
+        height: { ideal: settings.cameraResolution === 'high' ? 1080 : 720 },
+      };
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
+          audio: false,
+        });
+      } catch (error: unknown) {
+        const isFacingModeError =
+          error instanceof DOMException &&
+          (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError');
+        if (!isFacingModeError || facingMode !== 'environment') throw error;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: videoConstraints.width,
+            height: videoConstraints.height,
+          },
+          audio: false,
+        });
+      }
 
       streamRef.current = stream;
 
@@ -245,8 +266,16 @@ export const CameraScanner: React.FC<Props> = ({
           onHardwareTorchStatusChange(false);
         }
       }
+      return true;
     } catch (err: unknown) {
       console.error('Camera stream error:', err);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      setHasTorch(false);
+      onHardwareTorchStatusChange?.(false);
       let message = 'Unable to access camera.';
       if (err instanceof DOMException) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -260,13 +289,40 @@ export const CameraScanner: React.FC<Props> = ({
         message = err.message;
       }
       setCameraError(message);
+      return false;
     }
-  }, [facingMode, onHardwareTorchStatusChange]);
+  }, [facingMode, onHardwareTorchStatusChange, settings.cameraResolution]);
 
-  // Launch camera when facing mode changes
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    setHasTorch(false);
+    onHardwareTorchStatusChange?.(false);
+    onSetFlashlightMode('off');
+    setThreatActive(false);
+    lastDetectionsRef.current = [];
+    onThreatDetected([]);
+    soundAlarm.stopAlarm();
+  }, [onHardwareTorchStatusChange, onSetFlashlightMode, onThreatDetected]);
+
+  const handleStartScan = async () => {
+    soundAlarm.init();
+    const cameraReady = streamRef.current !== null || (await startCamera());
+    if (cameraReady) {
+      setIsScanning(true);
+      setIsPaused(false);
+    }
+  };
+
   useEffect(() => {
-    startCamera();
+    if (streamRef.current) void startCamera();
+  }, [facingMode, settings.cameraResolution, startCamera]);
 
+  useEffect(() => {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
@@ -274,7 +330,7 @@ export const CameraScanner: React.FC<Props> = ({
       }
       soundAlarm.stopAlarm();
     };
-  }, [startCamera]);
+  }, []);
 
   // Apply Hardware Torch constraint
   const applyHardwareTorch = useCallback(async (state: boolean) => {
@@ -415,7 +471,8 @@ export const CameraScanner: React.FC<Props> = ({
 
     const dataUrl = offscreen.toDataURL('image/jpeg', 0.9);
 
-    const highest = lastDetections.find((d) => d.threatLevel === 'DANGER') || lastDetections[0];
+    const latestDetections = lastDetectionsRef.current;
+    const highest = latestDetections.find((d) => d.threatLevel === 'DANGER') || latestDetections[0];
 
     const incident: ScanIncident = {
       id: `incident_${Date.now()}`,
@@ -459,6 +516,8 @@ export const CameraScanner: React.FC<Props> = ({
   // Main Detection Loop: Camera-Only Processing with Ignore Mask Exclusion
   useEffect(() => {
     let isRunning = true;
+    let idleStatusReported = false;
+    let idleTimeout: number | null = null;
 
     const processFrame = async () => {
       if (!isRunning) return;
@@ -467,7 +526,17 @@ export const CameraScanner: React.FC<Props> = ({
       const canvas = canvasRef.current;
       const container = containerRef;
 
-      if (video && canvas && video.readyState >= 2 && isScanning && modelReady) {
+      if (
+        video &&
+        canvas &&
+        video.readyState >= 2 &&
+        isScanning &&
+        !isPaused &&
+        modelReady &&
+        performance.now() - lastInferenceTime.current >= 1000 / Math.max(1, settings.fpsLimit)
+      ) {
+        idleStatusReported = false;
+        lastInferenceTime.current = performance.now();
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           canvas.width = video.videoWidth || 640;
           canvas.height = video.videoHeight || 480;
@@ -479,43 +548,23 @@ export const CameraScanner: React.FC<Props> = ({
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
           try {
-            // Run genuine multi-scale camera detection model
-            const predictions = await detectorService.detect(video, settings.sensitivity);
+            // Analyze the full frame and overlapping crops with the loaded object detector.
+            const predictions = await detectorService.detect(
+              video,
+              settings.sensitivity,
+              settings.scanPerformance
+            );
 
-            // Inject simulated multi-candidate test targets if operator test mode is active
-            if (simulatedMultiThreatsRef.current) {
-              const testCandidates: DetectionResult[] = [
-                {
-                  bbox: [
-                    canvas.width * 0.44,
-                    canvas.height * 0.40,
-                    canvas.width * 0.16,
-                    canvas.height * 0.20,
-                  ],
-                  class: 'camera',
-                  score: 0.96,
-                  threatLevel: 'DANGER',
-                  label: 'CONCEALED PINHOLE LENS',
-                  isCameraTarget: true,
-                },
-                {
-                  bbox: [
-                    canvas.width * 0.12,
-                    canvas.height * 0.62,
-                    canvas.width * 0.18,
-                    canvas.height * 0.22,
-                  ],
-                  class: 'cell phone',
-                  score: 0.88,
-                  threatLevel: 'DANGER',
-                  label: 'MOBILE RECORDING SENSOR',
-                  isCameraTarget: true,
-                },
-              ];
-              predictions.push(...testCandidates);
+            frameCount.current++;
+            const now = performance.now();
+            if (now - lastFrameTime.current >= 1000) {
+              fpsRef.current = frameCount.current;
+              setFps(fpsRef.current);
+              frameCount.current = 0;
+              lastFrameTime.current = now;
             }
 
-            setLastDetections(predictions);
+            lastDetectionsRef.current = predictions;
 
             const vw = video.videoWidth || 640;
             const vh = video.videoHeight || 480;
@@ -636,7 +685,13 @@ export const CameraScanner: React.FC<Props> = ({
                   isAutoZoomActive: willAutoZoom,
                 };
 
-                setZoomOrigin({ x: originXPercent, y: originYPercent });
+                if (
+                  Math.abs(originXPercent - zoomOriginRef.current.x) > 1 ||
+                  Math.abs(originYPercent - zoomOriginRef.current.y) > 1
+                ) {
+                  zoomOriginRef.current = { x: originXPercent, y: originYPercent };
+                  setZoomOrigin(zoomOriginRef.current);
+                }
                 if (willAutoZoom) {
                   setCurrentZoom(zoomLevelRef.current);
                 } else {
@@ -646,17 +701,50 @@ export const CameraScanner: React.FC<Props> = ({
             } else {
               // 0 or 1 threat - neutral framing
               setCurrentZoom(1.0);
-              setZoomOrigin({ x: 50, y: 50 });
+              if (zoomOriginRef.current.x !== 50 || zoomOriginRef.current.y !== 50) {
+                zoomOriginRef.current = { x: 50, y: 50 };
+                setZoomOrigin(zoomOriginRef.current);
+              }
             }
 
-            setCenterLock(lockData);
+            setCenterLock((previous) => {
+              if (!previous || !lockData) return previous === lockData ? previous : lockData;
+              const changed =
+                previous.index !== lockData.index ||
+                previous.totalCandidates !== lockData.totalCandidates ||
+                previous.label !== lockData.label ||
+                previous.isAutoZoomActive !== lockData.isAutoZoomActive ||
+                Math.abs(previous.score - lockData.score) > 0.03 ||
+                Math.abs(previous.distPercent - lockData.distPercent) > 2 ||
+                Math.abs(previous.cxPercent - lockData.cxPercent) > 2 ||
+                Math.abs(previous.cyPercent - lockData.cyPercent) > 2;
+              return changed ? lockData : previous;
+            });
 
             const hasCamera = cameraThreats.length > 0;
             setThreatActive(hasCamera);
+            const completedAt = performance.now();
+            if (
+              hasCamera !== lastPublishedThreat.current ||
+              cameraThreats.length !== lastPublishedThreatCount.current ||
+              completedAt - lastStatusPublishTime.current >= 500
+            ) {
+              onThreatDetected(cameraThreats);
+              onStatusChange({
+                isScanning: true,
+                threatDetected: hasCamera,
+                threatCount: cameraThreats.length,
+                highestThreatLabel: (centerMostIndex >= 0 ? cameraThreats[centerMostIndex] : cameraThreats[0])?.label,
+                fps: fpsRef.current,
+                ignoredThreatsCount: skippedByMaskCount,
+              });
+              lastPublishedThreat.current = hasCamera;
+              lastPublishedThreatCount.current = cameraThreats.length;
+              lastStatusPublishTime.current = completedAt;
+            }
 
             if (hasCamera) {
               soundAlarm.triggerAlarmSequence();
-              onThreatDetected(cameraThreats);
 
               // Auto-log incident throttled to avoid duplicates
               const now = Date.now();
@@ -669,9 +757,10 @@ export const CameraScanner: React.FC<Props> = ({
                   threatClass: top.class,
                   threatLabel: top.label,
                   confidence: top.score,
+                  priority: 'MEDIUM',
                   notes: cameraThreats.length > 1
-                    ? `Multi-target scene (${cameraThreats.length} detected). Center Priority: ${top.label} at ${(top.score * 100).toFixed(1)}%`
-                    : `Camera Identified: ${top.label} at ${(top.score * 100).toFixed(1)}% confidence`,
+                    ? `COCO-SSD classified ${cameraThreats.length} phone-like object candidate(s). Center candidate: ${top.label}, score ${(top.score * 100).toFixed(1)}%. Camera status is unconfirmed.`
+                    : `COCO-SSD phone-class candidate, score ${(top.score * 100).toFixed(1)}%. This does not confirm a hidden camera or recording.`,
                 });
               }
             } else {
@@ -681,44 +770,56 @@ export const CameraScanner: React.FC<Props> = ({
             // Draw Overlays: Highlights center-most candidate when multiple are identified
             drawOverlays(ctx, canvas.width, canvas.height, cameraThreats, predictions, centerMostIndex, lockData);
 
-            // Notify parent
-            onStatusChange({
-              isScanning: true,
-              threatDetected: hasCamera,
-              threatCount: cameraThreats.length,
-              highestThreatLabel: (centerMostIndex >= 0 ? cameraThreats[centerMostIndex] : cameraThreats[0])?.label,
-              fps: fps,
-              ignoredThreatsCount: skippedByMaskCount,
-            });
           } catch (err) {
-            console.warn('Detection cycle error:', err);
+            const message = err instanceof Error ? err.message : 'Unknown inference error';
+            console.error('Detection cycle error:', err);
+            setModelError(`Object detection failed: ${message}`);
+            setModelReady(false);
+            setThreatActive(false);
+            lastDetectionsRef.current = [];
+            onThreatDetected([]);
+            soundAlarm.stopAlarm();
           }
         }
 
-        // Real FPS
-        frameCount.current++;
-        const now = performance.now();
-        if (now - lastFrameTime.current >= 1000) {
-          setFps(frameCount.current);
-          frameCount.current = 0;
-          lastFrameTime.current = now;
-        }
-      } else if (!isScanning) {
+      } else if (!isScanning || isPaused) {
         soundAlarm.stopAlarm();
         if (canvas) {
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
-        onStatusChange({
-          isScanning: false,
-          threatDetected: false,
-          threatCount: 0,
-          fps: 0,
-        });
+        if (!idleStatusReported) {
+          onStatusChange({
+            isScanning: false,
+            threatDetected: false,
+            threatCount: 0,
+            fps: 0,
+          });
+          idleStatusReported = true;
+          lastPublishedThreat.current = false;
+          lastPublishedThreatCount.current = 0;
+          lastStatusPublishTime.current = performance.now();
+        }
       }
 
       if (isRunning) {
-        animFrameId.current = requestAnimationFrame(processFrame);
+        if (isScanning && !isPaused && modelReady && streamRef.current) {
+          const waitMs = Math.max(
+            0,
+            1000 / Math.max(1, settings.fpsLimit) - (performance.now() - lastInferenceTime.current)
+          );
+          if (waitMs > 0) {
+            idleTimeout = window.setTimeout(() => {
+              animFrameId.current = requestAnimationFrame(processFrame);
+            }, waitMs);
+          } else {
+            animFrameId.current = requestAnimationFrame(processFrame);
+          }
+        } else {
+          idleTimeout = window.setTimeout(() => {
+            animFrameId.current = requestAnimationFrame(processFrame);
+          }, 250);
+        }
       }
     };
 
@@ -729,16 +830,21 @@ export const CameraScanner: React.FC<Props> = ({
       if (animFrameId.current) {
         cancelAnimationFrame(animFrameId.current);
       }
+      if (idleTimeout !== null) {
+        window.clearTimeout(idleTimeout);
+      }
       soundAlarm.stopAlarm();
     };
   }, [
     isScanning,
     modelReady,
     settings.sensitivity,
+    settings.scanPerformance,
+    settings.fpsLimit,
+    isPaused,
     flashlightMode,
     screenIlluminator,
     containerRef,
-    fps,
   ]);
 
   // Render Overlays: Exclusively Red/Gold Bounding Boxes on genuine camera targets
@@ -761,14 +867,7 @@ export const CameraScanner: React.FC<Props> = ({
 
         ctx.save();
 
-        if (isCenterMost) {
-          // Vibrant Gold / Amber Tactical Bounding Box with Cyan accents for Center-Most candidate
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 4;
-          ctx.shadowColor = '#f59e0b';
-          ctx.shadowBlur = 22;
-          ctx.strokeRect(x, y, w, h);
-        } else if (isMultiCandidate) {
+        if (isMultiCandidate && !isCenterMost) {
           // Secondary candidate dashed styling
           ctx.strokeStyle = '#ef4444';
           ctx.lineWidth = 2.5;
@@ -780,17 +879,17 @@ export const CameraScanner: React.FC<Props> = ({
         } else {
           // Single candidate standard danger box
           ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 3.5;
+          ctx.lineWidth = isCenterMost ? 4 : 3.5;
           ctx.shadowColor = '#ef4444';
-          ctx.shadowBlur = 16;
+          ctx.shadowBlur = isCenterMost ? 22 : 16;
           ctx.strokeRect(x, y, w, h);
         }
 
         // Reticle Corner Brackets & Optical Crosshairs
         const cornerSize = isCenterMost ? Math.min(32, w / 3, h / 3) : Math.min(24, w / 4, h / 4);
         ctx.lineWidth = isCenterMost ? 6 : isMultiCandidate ? 3.5 : 5.5;
-        ctx.strokeStyle = isCenterMost ? '#38bdf8' : '#ef4444';
-        if (isCenterMost) ctx.shadowColor = '#38bdf8';
+        ctx.strokeStyle = '#ef4444';
+        ctx.shadowColor = '#ef4444';
 
         // Top-left
         ctx.beginPath();
@@ -949,7 +1048,9 @@ export const CameraScanner: React.FC<Props> = ({
     <div
       ref={setContainerRef}
       className={`relative w-full overflow-hidden rounded-2xl bg-black border border-slate-800 shadow-2xl flex flex-col select-none ${
-        isFullscreen ? 'h-screen w-screen rounded-none border-none' : 'aspect-video min-h-[380px] max-h-[70vh]'
+        isFullscreen
+          ? 'h-[100dvh] w-screen rounded-none border-none'
+          : 'aspect-video min-h-[min(380px,62vh)] max-h-[70dvh] sm:min-h-[380px]'
       }`}
     >
       {/* Zoomable Viewport Layer for Video & Detection Overlays */}
@@ -1085,17 +1186,22 @@ export const CameraScanner: React.FC<Props> = ({
       )}
 
       {/* Top HUD Bar */}
-      <div className="absolute top-0 inset-x-0 z-30 p-3 sm:p-4 flex items-center justify-between pointer-events-none bg-gradient-to-b from-black/85 via-black/40 to-transparent">
+      <div className="absolute top-0 inset-x-0 z-30 p-2 sm:p-4 flex items-start justify-between gap-1 pointer-events-none bg-gradient-to-b from-black/85 via-black/40 to-transparent">
         <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
           {threatActive ? (
-            <div className="px-3.5 py-1.5 rounded-full bg-red-600 text-white font-mono text-xs font-bold tracking-wider flex items-center gap-1.5 shadow-lg shadow-red-900/60 animate-bounce">
+            <div className="px-2 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-red-600 text-white font-mono text-[10px] sm:text-xs font-bold tracking-wider flex items-center gap-1.5 shadow-lg shadow-red-900/60 animate-pulse">
               <AlertTriangle className="w-4 h-4" />
-              <span>DANGER: POTENTIAL CAMERA DETECTED</span>
+              <span className="sm:hidden">CAMERA-LIKE CANDIDATE</span>
+              <span className="hidden sm:inline">DANGER: POTENTIAL CAMERA-LIKE OBJECT</span>
             </div>
-          ) : isScanning ? (
+          ) : isScanning && !isPaused ? (
             <div className="px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-xs font-semibold flex items-center gap-1.5">
               <Radio className="w-3.5 h-3.5 animate-pulse" />
               <span>SCANNING</span>
+            </div>
+          ) : isPaused ? (
+            <div className="px-3 py-1 rounded-full bg-amber-950/80 border border-amber-500/40 text-amber-300 font-mono text-xs">
+              PAUSED
             </div>
           ) : (
             <div className="px-3 py-1 rounded-full bg-slate-900/80 border border-slate-700 text-slate-400 font-mono text-xs">
@@ -1107,6 +1213,41 @@ export const CameraScanner: React.FC<Props> = ({
             <span>FPS: {fps}</span>
             <span>·</span>
             <span className="uppercase">{facingMode}</span>
+            <span>·</span>
+            <span>{settings.scanPerformance.toUpperCase()}</span>
+            {videoRef.current?.videoWidth ? (
+              <>
+                <span>·</span>
+                <span>{videoRef.current.videoWidth}×{videoRef.current.videoHeight}</span>
+              </>
+            ) : null}
+          </div>
+
+          <div className="sm:hidden px-1.5 py-1 rounded bg-black/70 border border-slate-700 text-[9px] font-mono text-slate-300">
+            {fps} FPS
+          </div>
+
+          <div className="flex flex-col items-start gap-0.5 text-[9px] sm:text-[10px] font-mono text-slate-300 px-1.5 sm:px-2 py-1 rounded bg-black/70 border border-slate-700 pointer-events-auto">
+            <label className="flex items-center gap-1.5">
+              <span className="hidden sm:inline">TEST DISTANCE</span>
+              <span className="sm:hidden">TEST</span>
+              <select
+                value={testDistance}
+                onChange={(event) => setTestDistance(event.target.value as typeof testDistance)}
+                className="bg-slate-900 text-white rounded px-1 py-0.5 border border-slate-600"
+                aria-label="Select test distance"
+                title="Manual test setup only. The application cannot measure distance or guarantee detection at any range."
+              >
+                <option value="near">Near</option>
+                <option value="10">10 m</option>
+                <option value="15">15 m</option>
+                <option value="20">20 m</option>
+              </select>
+            </label>
+            <span className="text-[8px] sm:text-[10px] text-slate-500">
+              <span className="sm:hidden">Range unmeasured</span>
+              <span className="hidden sm:inline">Test setting only; range is not measured.</span>
+            </span>
           </div>
 
           {ignoreMasks.length > 0 && (
@@ -1118,14 +1259,14 @@ export const CameraScanner: React.FC<Props> = ({
         </div>
 
         {/* Quick HUD controls */}
-        <div className="flex items-center gap-1.5 pointer-events-auto">
+        <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-1.5 pointer-events-auto">
           {/* Auto-Center Focal Zoom Toggle */}
           <button
             onClick={() => {
               setAutoZoomEnabled((prev) => !prev);
               soundAlarm.playScanTick();
             }}
-            className={`p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`hidden sm:flex min-w-11 min-h-11 p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer items-center justify-center gap-1.5 ${
               autoZoomEnabled
                 ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400/50'
                 : 'bg-black/60 text-slate-400 border-white/10 hover:bg-black/80'
@@ -1138,33 +1279,10 @@ export const CameraScanner: React.FC<Props> = ({
             </span>
           </button>
 
-          {/* Test Multi-Candidate Toggle (Simulate 2 suspicious cameras to test center-lock & auto-zoom) */}
-          <button
-            onClick={() => {
-              setSimulatedMultiThreats((prev) => !prev);
-              soundAlarm.playScanTick();
-            }}
-            className={`p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer flex items-center gap-1.5 ${
-              simulatedMultiThreats
-                ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/40 animate-pulse font-bold'
-                : 'bg-black/60 text-slate-300 border-white/10 hover:bg-black/80'
-            }`}
-            title={
-              simulatedMultiThreats
-                ? 'Stop Multi-Candidate Test'
-                : 'Simulate Dual Suspicious Objects (Test Center-Lock & Auto-Zoom)'
-            }
-          >
-            <Target className="w-4 h-4" />
-            <span className="text-[10px] font-mono font-bold hidden lg:inline">
-              {simulatedMultiThreats ? 'DUAL-TEST ON' : 'TEST DUAL CAM'}
-            </span>
-          </button>
-
           {/* Ignore Mask Drawing Toggle */}
           <button
             onClick={() => onToggleDrawingMask()}
-            className={`p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`hidden sm:flex min-w-11 min-h-11 p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer items-center justify-center gap-1.5 ${
               isDrawingMask
                 ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/40 ring-2 ring-amber-300'
                 : ignoreMasks.length > 0
@@ -1181,7 +1299,7 @@ export const CameraScanner: React.FC<Props> = ({
 
           <button
             onClick={cycleFlashlightMode}
-            className={`p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`min-w-11 min-h-11 p-2 rounded-xl backdrop-blur-md border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               flashlightMode === 'steady'
                 ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/30'
                 : flashlightMode === 'strobe'
@@ -1204,7 +1322,7 @@ export const CameraScanner: React.FC<Props> = ({
 
           <button
             onClick={switchCameraFacing}
-            className="p-2 rounded-xl bg-black/60 hover:bg-black/80 text-slate-300 border border-white/10 backdrop-blur-md transition-all cursor-pointer"
+            className="min-w-11 min-h-11 p-2 rounded-xl bg-black/60 hover:bg-black/80 text-slate-300 border border-white/10 backdrop-blur-md transition-all cursor-pointer"
             title="Switch Front/Back Camera"
           >
             <SwitchCamera className="w-4 h-4" />
@@ -1212,7 +1330,7 @@ export const CameraScanner: React.FC<Props> = ({
 
           <button
             onClick={handleQuickSnapshot}
-            className="p-2 rounded-xl bg-black/60 hover:bg-black/80 text-slate-300 border border-white/10 backdrop-blur-md transition-all cursor-pointer"
+            className="min-w-11 min-h-11 p-2 rounded-xl bg-black/60 hover:bg-black/80 text-slate-300 border border-white/10 backdrop-blur-md transition-all cursor-pointer"
             title="Quick Snapshot (Manual Observation)"
           >
             <Camera className="w-4 h-4" />
@@ -1373,7 +1491,7 @@ export const CameraScanner: React.FC<Props> = ({
           </p>
           <div className="mt-4 flex gap-3">
             <button
-              onClick={startCamera}
+              onClick={handleStartScan}
               className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-semibold text-white flex items-center gap-2 shadow-lg cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -1466,7 +1584,7 @@ export const CameraScanner: React.FC<Props> = ({
       )}
 
       {/* Floating 'Quick Snapshot' Button (High-Priority Manual Observation) */}
-      <div className="absolute right-3 sm:right-5 bottom-24 sm:bottom-28 z-30 pointer-events-auto flex flex-col items-end gap-1.5 animate-in fade-in">
+      <div className="hidden sm:flex absolute right-3 sm:right-5 bottom-24 sm:bottom-28 z-30 pointer-events-auto flex-col items-end gap-1.5 animate-in fade-in">
         <button
           onClick={handleQuickSnapshot}
           className="group relative flex items-center gap-2.5 px-4 py-2.5 sm:px-4.5 sm:py-3 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-mono text-xs sm:text-sm font-extrabold shadow-2xl shadow-red-950/80 border border-white/20 hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-md"
@@ -1518,23 +1636,23 @@ export const CameraScanner: React.FC<Props> = ({
           </button>
         </div>
       )}
-      <div className="absolute bottom-0 inset-x-0 z-30 p-3 sm:p-5 flex items-center justify-between bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none">
+      <div className="absolute bottom-0 inset-x-0 z-30 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-5 flex items-center justify-between gap-1 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none">
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
-            onClick={() => soundAlarm.setMuted(!soundAlarm.getMuted())}
+            onClick={() => onSetAlarmEnabled(!settings.audioAlarmEnabled)}
             className={`p-2.5 rounded-xl border backdrop-blur-md transition-all cursor-pointer ${
-              !soundAlarm.getMuted()
+              settings.audioAlarmEnabled
                 ? 'bg-slate-900/80 text-emerald-400 border-emerald-500/30'
                 : 'bg-slate-900/80 text-slate-500 border-slate-700'
             }`}
-            title={soundAlarm.getMuted() ? 'Audio Alarm Muted' : 'Audio Alarm Active'}
+            title={settings.audioAlarmEnabled ? 'Mute alarm' : 'Unmute alarm'}
           >
-            {!soundAlarm.getMuted() ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            {settings.audioAlarmEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
           <button
             onClick={cycleFlashlightMode}
-            className={`min-h-[44px] px-3.5 py-2 rounded-xl border backdrop-blur-md font-mono text-xs font-bold tracking-wide flex items-center gap-2 transition-all cursor-pointer ${
+            className={`hidden sm:flex min-h-[44px] px-3.5 py-2 rounded-xl border backdrop-blur-md font-mono text-xs font-bold tracking-wide items-center gap-2 transition-all cursor-pointer ${
               flashlightMode === 'steady'
                 ? 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/40'
                 : flashlightMode === 'strobe'
@@ -1557,13 +1675,18 @@ export const CameraScanner: React.FC<Props> = ({
         </div>
 
         {/* Primary START / STOP SCAN Toggle Button */}
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto flex items-center gap-2">
           <button
             onClick={() => {
-              soundAlarm.init();
-              setIsScanning(!isScanning);
+              if (isScanning) {
+                setIsScanning(false);
+                stopCamera();
+              } else {
+                void handleStartScan();
+              }
+              setIsPaused(false);
             }}
-            className={`min-h-[48px] px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold tracking-wider flex items-center gap-2.5 shadow-xl transition-all cursor-pointer ${
+            className={`min-h-[48px] px-3 sm:px-5 py-2.5 rounded-xl text-[10px] sm:text-sm font-bold tracking-wide sm:tracking-wider flex items-center gap-1.5 sm:gap-2.5 shadow-xl transition-all cursor-pointer ${
               isScanning
                 ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-950/60 active:scale-95'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/60 active:scale-95'
@@ -1572,18 +1695,38 @@ export const CameraScanner: React.FC<Props> = ({
             {isScanning ? (
               <>
                 <Square className="w-4 h-4 fill-current" />
-                <span>STOP SCAN</span>
+                <span className="sm:hidden">STOP</span>
+                <span className="hidden sm:inline">STOP SCAN</span>
               </>
             ) : (
               <>
                 <Play className="w-4 h-4 fill-current" />
-                <span>START SCAN</span>
+                <span className="sm:hidden">START</span>
+                <span className="hidden sm:inline">START SCAN</span>
               </>
             )}
           </button>
+          {isScanning && (
+          <button
+            onClick={() => {
+              const nextPaused = !isPaused;
+              if (nextPaused) {
+                setThreatActive(false);
+                lastDetectionsRef.current = [];
+                onThreatDetected([]);
+              }
+              setIsPaused(nextPaused);
+              soundAlarm.playScanTick();
+            }}
+              className="min-h-[48px] px-2 sm:px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[10px] sm:text-xs font-bold flex items-center gap-1 sm:gap-2 cursor-pointer"
+            >
+              {isPaused ? <Play className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+              <span>{isPaused ? 'RESUME' : 'PAUSE'}</span>
+            </button>
+          )}
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="hidden sm:flex pointer-events-auto items-center gap-2">
           {/* Draw Ignore Mask quick access in bottom bar */}
           <button
             onClick={() => onToggleDrawingMask()}

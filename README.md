@@ -1,24 +1,86 @@
-# Project Title: Real-Time Hidden Camera Detector
+# Real-Time Camera Inspection
 
-## Objective
-Create a simple, professional website that uses a device camera to scan the surroundings in real time for potentially visible hidden cameras. When the system detects a suspicious camera-like object, highlight it with a **red bounding box**, display a **DANGER** warning, and play an alert sound immediately.
+A browser-based live camera inspection dashboard. It runs TensorFlow.js COCO-SSD locally against successive camera frames, highlights model-supported object candidates, and keeps scan history in browser storage.
 
-## Key Features
-- **Live Camera:** Access the device camera and display real-time video.
-- **Camera Detection:** Use a real object-detection model to identify camera-like objects in the video feed.
-- **Red Danger Alert:** Highlight detected camera-like objects with a flashing red box and a clear DANGER message.
-- **Warning Sound:** Play an alarm sound when a suspicious camera-like object is detected.
-- **Real-Time Scanning:** Continuously analyze video frames and update detections instantly.
-- **Start / Stop Scan:** Provide simple controls to start and stop scanning.
-- **Detection Status:** Display “SCANNING” in green when scanning and “POTENTIAL CAMERA DETECTED” in red when a candidate is found.
-- **Clean UI:** Use a dark background, red danger indicators, smooth scanning animations, and a responsive design for mobile and desktop.
-- **No Fake Results:** Never display random detections. Use genuine model predictions and show an error if the detection model is unavailable.
-- **Browser Support:** Handle camera permissions and require HTTPS when deployed.
+## What it can identify
 
-## Technical Requirements
-Use React, TypeScript, and Vite. Use the browser camera API and a compatible, genuinely implemented object-detection model. Add an alert sound that works after the user enables audio. Keep video processing local to the browser wherever possible.
+The bundled `@tensorflow-models/coco-ssd` `lite_mobilenet_v2` model was trained on the COCO object categories. This implementation only raises an alert for its **cell phone** category, since COCO-SSD does not provide a dedicated camera, webcam, CCTV, pinhole, or micro-camera class. A phone-shaped model prediction is a camera-capable object candidate, not confirmation of a hidden camera or that recording is taking place.
 
-## Expected Outcome
-Build a fully functional, simple website that scans a live camera feed, detects recognizable camera-like objects in real time, draws red boxes around potential detections, and plays a danger sound when a candidate is detected. Provide complete working code and instructions to run the website in VS Code.
+Fast scan mode runs one full-frame model pass. Detail mode adds four overlapping image tiles to give small visible objects more input pixels, at the cost of slower updates. Camera image quality requests either 1280×720 or 1920×1080, subject to the camera and browser. Tiling and optical/digital zoom cannot recover detail the sensor did not resolve. The sensitivity setting changes the COCO-SSD score threshold; it does not add classes or train the model for small cameras. The maximum inference-rate control is 5, 10, or 15 frames per second; actual FPS is limited by the selected mode and device.
 
-Important: Do not claim to detect every concealed camera. A normal camera and visual object-detection model cannot reliably identify devices hidden behind objects or cameras that are too small or obscured.
+The 10 m, 15 m, and 20 m values are manually selected test conditions, not measured distance or guaranteed operating ranges. Results at those distances depend on target size, resolution, optical zoom, focus, lighting, and motion. Candidates rendered smaller than 24 pixels are flagged as too small for reliable identification. No candidates means only that no supported object was identified in the analyzed frame.
+
+This website cannot reliably identify devices hidden behind opaque materials, powered-off devices, tiny lenses, or objects outside the model's trained categories. Use appropriate optical zoom or specialized inspection equipment when needed. Treat every result as an unconfirmed lead.
+
+## Privacy and permissions
+
+- Camera frames are processed in the browser and are not uploaded by this application.
+- COCO-SSD model files are fetched by TensorFlow.js from its configured model source when the app initializes.
+- Scan events and preferences are stored in this browser's local storage. A still image is saved only when you request a snapshot.
+- Camera access requires permission and a secure context: HTTPS in deployment, or `localhost` during development.
+- Alarm playback requires browser audio permission/user interaction. Use the alarm test button after enabling audio.
+
+## Run in VS Code
+
+1. Install Node.js (a version supported by the installed Vite release) and open this folder in VS Code.
+2. Open the integrated terminal and install project dependencies:
+
+   ```sh
+   npm install
+   ```
+
+3. Start the Vite development server:
+
+   ```sh
+   npm run dev
+   ```
+
+4. Open the local URL printed by Vite (by default `http://localhost:3000`) and allow camera access.
+5. Use **Settings** to change the confidence threshold, inference rate, or alarm. Start/stop and pause/resume scanning from the scanner controls; use the camera-switch control on devices with multiple cameras.
+
+### Mobile phones
+
+Open the deployed HTTPS site directly in the phone's browser (current Chrome on Android or Safari on iOS), grant camera permission, and tap **Start**. Camera access is intentionally requested from that tap to satisfy mobile permission and media-playback rules. On a phone-sized viewport the scanner starts with the standard resolution, fast single-frame inference, and a 5 FPS cap to limit heat and battery use; these settings can be changed in **Settings**. The camera selector prefers the rear camera and falls back to an available camera if the requested facing mode is unavailable. A development server opened from a phone over plain HTTP on a LAN address is not a secure context; use HTTPS or a secure local-development setup. Camera availability and inference speed vary by browser and device.
+
+For production verification and preview:
+
+```sh
+npm run lint
+npm run build
+npm run preview
+```
+
+## Main project structure
+
+```text
+src/
+  App.tsx
+  main.tsx
+  index.css
+  components/
+    BiometricModal.tsx
+    CameraScanner.tsx
+    DetectionStatusBadge.tsx
+    DisclaimerBanner.tsx
+    IgnoreMaskBar.tsx
+    IncidentLogsModal.tsx
+    MultiSensorHub.tsx
+    Navbar.tsx
+    QuickFlashlightBar.tsx
+    SettingsModal.tsx
+    TelemetryPanel.tsx
+  services/
+    audio.ts
+    biometric.ts
+    detector.ts
+    emfSensor.ts
+    glint.ts
+    irPinholeSensor.ts
+    reportGenerator.ts
+  types/
+    index.ts
+index.html
+package.json
+vite.config.ts
+tsconfig.json
+```

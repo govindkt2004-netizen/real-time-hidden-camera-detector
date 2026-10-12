@@ -41,3 +41,15 @@
 .animate-fade-in {
   animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+@media (max-width: 639px) {
+  button,
+  select {
+    touch-action: manipulation;
+  }
+
+  video {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

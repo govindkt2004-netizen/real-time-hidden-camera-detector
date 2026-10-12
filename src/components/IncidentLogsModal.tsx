@@ -80,10 +80,10 @@ export const IncidentLogsModal: React.FC<Props> = ({
             <Shield className="w-5 h-5 text-red-500 shrink-0" />
             <div>
               <h3 className="text-sm sm:text-base font-bold text-slate-100">
-                Security Audit Vault & Sweep Logs
+                Local Scan History
               </h3>
               <p className="text-xs text-slate-400">
-                {incidents.length} recorded threat incident{incidents.length === 1 ? '' : 's'} and optical detections
+                {incidents.length} saved inspection event{incidents.length === 1 ? '' : 's'}
               </p>
             </div>
           </div>

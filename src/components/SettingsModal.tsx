@@ -8,6 +8,7 @@ import {
   Volume2,
   VolumeX,
   Fingerprint,
+  Camera,
   Sliders,
   Sparkles,
   Shield,
@@ -34,6 +35,7 @@ export const SettingsModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const testAudio = () => {
+    soundAlarm.init();
     soundAlarm.playDangerPulse();
   };
 
@@ -130,7 +132,36 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
           </div>
 
+          {/* Camera Image Quality */}
           {/* Biometric Security */}
+          <div className="pt-4 border-t border-slate-800">
+            <div className="flex items-center gap-2 mb-2">
+              <Camera className="w-4 h-4 text-cyan-400" />
+              <label className="text-sm font-semibold text-slate-200">Camera Image Quality</label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: 'standard', label: 'Standard · 1280×720' },
+                { value: 'high', label: 'High · 1920×1080' },
+              ] as const).map((quality) => (
+                <button
+                  key={quality.value}
+                  onClick={() => onUpdateSettings({ cameraResolution: quality.value })}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                    settings.cameraResolution === quality.value
+                      ? 'border-cyan-500 bg-cyan-950/40 text-cyan-200'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  {quality.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Requests this size from your camera. The browser may provide a different resolution; check the live preview readout.
+            </p>
+          </div>
+
           <div className="pt-4 border-t border-slate-800">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -180,9 +211,11 @@ export const SettingsModal: React.FC<Props> = ({
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={testAudio}
-                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700 cursor-pointer"
+                  disabled={!settings.audioAlarmEnabled}
+                  title={settings.audioAlarmEnabled ? 'Play a test alarm tone' : 'Enable alarm audio to test it'}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] text-slate-300 border border-slate-700 cursor-pointer"
                 >
-                  Test Beep
+                  Test Alarm
                 </button>
                 <button
                   onClick={() => onUpdateSettings({ audioAlarmEnabled: !settings.audioAlarmEnabled })}
@@ -225,11 +258,65 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
               {settings.sensitivity === 'balanced' &&
-                'Recommended for everyday sweeps. Targets dedicated cameras and mobile recorders (confidence > 50%).'}
+                'Balanced threshold (48%). The model can label phones; it is not trained to recognize hidden-camera hardware.'}
               {settings.sensitivity === 'high' &&
-                'Aggressive. Also flags suspicious housings like alarm clocks, remotes, appliances, and webcams (confidence > 35%).'}
+                'Lower threshold (38%) may produce more phone candidates and false positives. It does not add new object classes.'}
               {settings.sensitivity === 'strict' &&
-                'High certainty only. Filters out partial matches to eliminate false alarms (confidence > 68%).'}
+                'Higher threshold (62%) returns fewer phone candidates. A model confidence score is not proof that a device is recording.'}
+            </p>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800">
+            <div className="flex items-center gap-2 mb-2">
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <label className="text-sm font-semibold text-slate-200">Scan Performance</label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: 'fast', label: 'Fast', detail: 'One full-frame pass' },
+                { value: 'detail', label: 'Detail', detail: 'Full frame + 4 tiles' },
+              ] as const).map((mode) => (
+                <button
+                  key={mode.value}
+                  onClick={() => onUpdateSettings({ scanPerformance: mode.value })}
+                  className={`py-2 px-3 rounded-lg text-left border transition-all cursor-pointer ${
+                    settings.scanPerformance === mode.value
+                      ? 'border-cyan-500 bg-cyan-950/40 text-cyan-200'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="block text-xs font-semibold">{mode.label}</span>
+                  <span className="block mt-0.5 text-[10px] opacity-75">{mode.detail}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Fast mode prioritizes responsiveness. Detail mode may improve visibility of small objects, but takes longer and cannot recover detail missing from the camera image.
+            </p>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800">
+            <div className="flex items-center gap-2 mb-2">
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <label className="text-sm font-semibold text-slate-200">Maximum Inference Rate</label>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {([5, 10, 15] as const).map((fps) => (
+                <button
+                  key={fps}
+                  onClick={() => onUpdateSettings({ fpsLimit: fps })}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                    settings.fpsLimit === fps
+                      ? 'border-cyan-500 bg-cyan-950/40 text-cyan-200'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  {fps} FPS
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              This is a maximum, not a guaranteed rate. Mobile devices start at 5 FPS to reduce heat and battery use; actual speed depends on device performance and scan mode.
             </p>
           </div>
 

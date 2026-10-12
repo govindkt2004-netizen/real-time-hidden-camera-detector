@@ -16,13 +16,13 @@ export const Navbar: React.FC<Props> = ({
 }) => {
   return (
     <header className="w-full border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-8">
         {/* Zone 1: Brand wordmark (single line) */}
         <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-950">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-950">
             <Shield className="w-4 h-4" />
           </div>
-          <span className="text-base sm:text-lg font-bold tracking-tight text-white font-mono">
+          <span className="text-sm sm:text-lg font-bold tracking-tight text-white font-mono">
             CAM·DETECTOR
           </span>
         </div>
@@ -40,7 +40,7 @@ export const Navbar: React.FC<Props> = ({
             className="hover:text-white transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer"
           >
             {isBiometricLocked && <Lock className="w-3.5 h-3.5 text-emerald-400" />}
-            <span>Evidence Vault</span>
+            <span>Scan History</span>
           </button>
           <button
             onClick={onOpenSweepGuide}
@@ -54,7 +54,7 @@ export const Navbar: React.FC<Props> = ({
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={onOpenSettings}
-            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-2 shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="min-h-10 px-2.5 sm:px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 sm:gap-2 shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Settings className="w-4 h-4 text-red-400" />
             <span>Settings</span>

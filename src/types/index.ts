@@ -32,7 +32,9 @@ export interface AppSettings {
   glintDetectionEnabled: boolean;
   biometricLockEnabled: boolean;
   cameraFacing: 'environment' | 'user';
-  fpsLimit: number;
+  cameraResolution: 'standard' | 'high';
+  fpsLimit: 5 | 10 | 15;
+  scanPerformance: 'fast' | 'detail';
 }
 
 export interface ActiveScanState {

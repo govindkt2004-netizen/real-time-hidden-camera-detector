@@ -22,12 +22,11 @@ export const DisclaimerBanner: React.FC = () => {
             </button>
           </div>
           <p className="mt-1 text-amber-200/80">
-            This application uses on-device visual machine learning and optical reflection analysis. 
+            This application uses on-device visual object detection; it is not a dedicated hidden-camera detector.{' '}
             <strong className="text-amber-200 ml-1">
               It does not and cannot claim to detect every concealed camera.
             </strong>{' '}
-            A standard device camera and visual object-detection model cannot reliably identify lenses hidden behind solid opaque objects, 
-            micro-pinholes smaller than the camera’s resolving power, or fully obscured electronic circuitry.
+            The bundled COCO-SSD model can identify its trained “cell phone” class, but is not trained to recognize dedicated cameras, pinhole lenses, or camera modules. A detected phone is not proof of recording. Objects hidden behind opaque materials, powered-off devices, and details below the image resolution cannot be identified. Low light, distance, camera optics, and motion further reduce reliability.
           </p>
 
           {expanded && (

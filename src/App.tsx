@@ -1,7 +1,7 @@
 /**
  * Hidden camera detection & Optical Sweep
  * On-device ML visual detection & optical retroreflection scanner with biometric security.
- * Features regional ignore masks to shield mirrors, windows, and eliminate false positives.
+ * Features regional ignore masks to exclude selected areas from candidate reporting.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -26,17 +26,39 @@ const DEFAULT_SETTINGS: AppSettings = {
   glintDetectionEnabled: true,
   biometricLockEnabled: false,
   cameraFacing: 'environment',
-  fpsLimit: 30,
+  cameraResolution: 'standard',
+  fpsLimit: 15,
+  scanPerformance: 'fast',
+};
+
+const MOBILE_DEFAULT_SETTINGS: AppSettings = {
+  ...DEFAULT_SETTINGS,
+  fpsLimit: 5,
 };
 
 export default function App() {
   // App Settings
   const [settings, setSettings] = useState<AppSettings>(() => {
+    const isMobileViewport =
+      typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+    const deviceDefaults = isMobileViewport
+      ? MOBILE_DEFAULT_SETTINGS
+      : DEFAULT_SETTINGS;
     try {
       const saved = localStorage.getItem('cam_detector_settings');
-      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      if (saved) {
+        const stored = JSON.parse(saved) as Partial<AppSettings>;
+        const storedFpsLimit = stored.fpsLimit;
+        const fpsLimit: AppSettings['fpsLimit'] =
+          storedFpsLimit === 5 || storedFpsLimit === 10 || storedFpsLimit === 15
+            ? storedFpsLimit
+            : deviceDefaults.fpsLimit;
+        const scanPerformance =
+          stored.scanPerformance === 'detail' ? 'detail' : deviceDefaults.scanPerformance;
+        return { ...deviceDefaults, ...stored, fpsLimit, scanPerformance };
+      }
     } catch {}
-    return DEFAULT_SETTINGS;
+    return deviceDefaults;
   });
 
   // Recorded Incidents
@@ -69,7 +91,7 @@ export default function App() {
     fps: number;
     ignoredThreatsCount?: number;
   }>({
-    isScanning: true,
+    isScanning: false,
     threatDetected: false,
     threatCount: 0,
     highestThreatLabel: undefined,
@@ -200,15 +222,15 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* Header Hero Strip */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
-              <span>Hidden camera detection & Optical Sweep</span>
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
+              <span>Live camera inspection</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              On-device neural network detection of lenses and recording units with regional false-positive exclusion masks.
+              On-device object detection for visible phones that may contain cameras. A detected object is a candidate, not proof of a hidden camera.
             </p>
           </div>
 
@@ -226,6 +248,9 @@ export default function App() {
         <section id="scanner" className="w-full space-y-3">
           <CameraScanner
             settings={settings}
+            onSetAlarmEnabled={(enabled) =>
+              setSettings((previous) => ({ ...previous, audioAlarmEnabled: enabled }))
+            }
             onThreatDetected={(threats) => {
               setActiveDetections(threats);
             }}
@@ -295,10 +320,10 @@ export default function App() {
           <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800/80">
             <div className="flex items-center gap-2 font-semibold text-sm text-slate-200 mb-1">
               <Camera className="w-4 h-4 text-red-400" />
-              <span>Genuine On-Device ML</span>
+              <span>On-Device Object Detection</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Inference executes entirely in your browser through TensorFlow.js. Video streams never leave your device, ensuring complete privacy during sweeps.
+              TensorFlow.js COCO-SSD inference runs in your browser. Video stays on this device; its trained labels do not include hidden, pinhole, or miniature cameras.
             </p>
           </div>
 
@@ -308,17 +333,17 @@ export default function App() {
               <span>Ignore Mask Regions</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Draw custom exclusion zones over windows, bathroom mirrors, and screens. The model automatically skips detections in these zones to eliminate false positives.
+              Draw exclusion zones over areas such as windows, mirrors, and screens. Detections in these regions are ignored, which can reduce false alerts but may also hide real candidates there.
             </p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800/80">
             <div className="flex items-center gap-2 font-semibold text-sm text-slate-200 mb-1">
               <Lock className="w-4 h-4 text-emerald-400" />
-              <span>Biometric Evidence Vault</span>
+              <span>Local Detection History</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Archive photos and timestamped detection events. Secure evidence reports with Touch ID, Face ID, Windows Hello, or cryptographic PIN.
+              Detection events are stored in this browser on this device. A saved snapshot is created only when you explicitly request one.
             </p>
           </div>
         </section>
@@ -328,9 +353,9 @@ export default function App() {
       <footer className="border-t border-slate-800/80 mt-12 py-6 bg-slate-950/80 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 font-mono">
-            <span>HIDDEN CAMERA DETECTION & OPTICAL SWEEP</span>
+            <span>LOCAL CAMERA INSPECTION</span>
             <span aria-hidden="true">·</span>
-            <span>TSCM CLIENT v2.5</span>
+            <span>ON-DEVICE OBJECT DETECTION</span>
           </div>
 
           <div className="flex items-center gap-4">
