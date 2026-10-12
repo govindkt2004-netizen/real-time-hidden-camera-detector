@@ -564,8 +564,8 @@ export const CameraScanner: React.FC<Props> = ({
     setDrawCurrent(null);
   };
 
-  // Capture Snapshot Frame for Evidence / Quick Snapshot Manual Observation
-  const captureEvidenceSnapshot = (isHighPriorityManual: boolean = false) => {
+  // Save a manual snapshot without treating it as a camera alert.
+  const captureEvidenceSnapshot = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
     const offscreen = document.createElement('canvas');
@@ -585,27 +585,27 @@ export const CameraScanner: React.FC<Props> = ({
 
     const latestDetections = lastDetectionsRef.current;
     const highest = latestDetections.find(
-      (d) => d.isCameraTarget && d.threatLevel === 'DANGER'
+      (d) =>
+        d.isCameraTarget &&
+        d.evidence === 'camera-model' &&
+        d.threatLevel === 'DANGER'
     );
 
     const incident: ScanIncident = {
       id: `incident_${Date.now()}`,
       timestamp: Date.now(),
-      threatClass: isHighPriorityManual ? 'MANUAL_OBSERVATION' : (highest ? highest.class : 'SWEEP_SNAPSHOT'),
-      threatLabel: isHighPriorityManual
-        ? (highest ? `Manual Observation: ${highest.label}` : 'Manual Observation (High Priority)')
-        : (highest ? highest.label : 'Camera Evidence Snapshot'),
-      confidence: highest ? highest.score : 1.0,
+      threatClass: highest ? highest.class : 'SWEEP_SNAPSHOT',
+      threatLabel: highest ? highest.label : 'Manual Snapshot (No Camera Candidate)',
+      confidence: highest ? highest.score : 0,
       snapshotDataUrl: dataUrl,
-      priority: isHighPriorityManual ? 'HIGH' : (highest?.threatLevel === 'DANGER' ? 'HIGH' : 'MEDIUM'),
-      isManualObservation: isHighPriorityManual,
-      notes: isHighPriorityManual
-        ? `High-priority manual snapshot logged by operator during active optical sweep. Facing: ${facingMode}, Torch: ${flashlightMode}.`
-        : `Captured via ${facingMode} camera with flashlight: ${flashlightMode}`,
+      priority: highest ? 'HIGH' : 'LOW',
+      isManualObservation: false,
+      notes: highest
+        ? `Manual snapshot with an unconfirmed camera-model candidate. Facing: ${facingMode}, Torch: ${flashlightMode}.`
+        : `Manual snapshot only; no camera candidate detected. Facing: ${facingMode}, Torch: ${flashlightMode}.`,
     };
 
     onSaveIncident(incident);
-    soundAlarm.playScanTick();
 
     // Trigger visual toast feedback
     if (snapshotToastTimerRef.current) {
@@ -614,9 +614,9 @@ export const CameraScanner: React.FC<Props> = ({
     setSnapshotFeedback({
       show: true,
       previewUrl: dataUrl,
-      message: isHighPriorityManual
-        ? 'Quick Snapshot saved to Incident History (HIGH PRIORITY)'
-        : 'Snapshot saved to Security History',
+      message: highest
+        ? 'Snapshot saved with unconfirmed camera candidate'
+        : 'Snapshot saved (no camera candidate detected)',
     });
     snapshotToastTimerRef.current = window.setTimeout(() => {
       setSnapshotFeedback(null);
@@ -624,7 +624,7 @@ export const CameraScanner: React.FC<Props> = ({
   };
 
   const handleQuickSnapshot = () => {
-    captureEvidenceSnapshot(true);
+    captureEvidenceSnapshot();
   };
 
   // Main detection loop: model inference with optional ignore-mask filtering.
@@ -1668,29 +1668,26 @@ export const CameraScanner: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Floating 'Quick Snapshot' Button (High-Priority Manual Observation) */}
+      {/* Manual snapshot control; distinct from camera alerts. */}
       <div className="hidden sm:flex absolute right-3 sm:right-5 bottom-24 sm:bottom-28 z-30 pointer-events-auto flex-col items-end gap-1.5 animate-in fade-in">
         <button
           onClick={handleQuickSnapshot}
-          className="group relative flex items-center gap-2.5 px-4 py-2.5 sm:px-4.5 sm:py-3 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-mono text-xs sm:text-sm font-extrabold shadow-2xl shadow-red-950/80 border border-white/20 hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-md"
-          title="Quick Snapshot: Manually save frame as High-Priority Manual Observation"
-          aria-label="Quick Snapshot manual observation"
+          className="group relative flex items-center gap-2.5 px-4 py-2.5 sm:px-4.5 sm:py-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 font-mono text-xs sm:text-sm font-bold border border-slate-700 hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-md"
+          title="Save a manual snapshot; this does not trigger a camera alert"
+          aria-label="Save manual snapshot"
         >
-          {/* Subtle pulse ring around button */}
-          <span className="absolute -inset-1 rounded-2xl bg-red-500/30 blur-sm group-hover:bg-red-500/50 transition-opacity -z-10 animate-pulse" />
-          
-          <div className="p-1 rounded-lg bg-black/30 border border-white/20">
+          <div className="p-1 rounded-lg bg-black/30 border border-white/10">
             <Camera className="w-4 h-4 text-white group-hover:rotate-6 transition-transform" />
           </div>
 
           <div className="flex flex-col text-left leading-tight">
-            <span className="tracking-wide">QUICK SNAPSHOT</span>
-            <span className="text-[9px] font-sans font-normal text-amber-200 uppercase tracking-tighter opacity-90 hidden sm:inline">
-              High-Priority Observation
+            <span className="tracking-wide">SAVE SNAPSHOT</span>
+            <span className="text-[9px] font-sans font-normal text-slate-400 uppercase tracking-tighter opacity-90 hidden sm:inline">
+              Manual image · no alert
             </span>
           </div>
 
-          <Bookmark className="w-3.5 h-3.5 text-amber-300 ml-0.5 fill-current" />
+          <Bookmark className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
         </button>
       </div>
 
