@@ -975,7 +975,7 @@ export const CameraScanner: React.FC<Props> = ({
             }
 
             // Draw Overlays: Highlights center-most candidate when multiple are identified
-            drawOverlays(ctx, cameraThreats, predictions);
+            drawOverlays(ctx, cameraThreats);
 
           } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown inference error';
@@ -1081,13 +1081,9 @@ export const CameraScanner: React.FC<Props> = ({
     containerRef,
   ]);
 
-  // Render non-camera model observations and visual cues without danger styling.
-  const drawOverlays = (
-    ctx: CanvasRenderingContext2D,
-    unmaskedThreats: DetectionResult[],
-    allPredictions: DetectionResult[]
-  ) => {
-    unmaskedThreats.forEach((d) => {
+  // Keep the live camera view clear of non-camera detections.
+  const drawOverlays = (ctx: CanvasRenderingContext2D, cameraCandidates: DetectionResult[]) => {
+    cameraCandidates.forEach((d) => {
       if (
         d.isCameraTarget &&
         d.evidence === 'camera-model' &&
@@ -1109,47 +1105,6 @@ export const CameraScanner: React.FC<Props> = ({
         ctx.fillRect(x, tagY, tagWidth, 20);
         ctx.fillStyle = '#fecaca';
         ctx.fillText(tag, x + 6, tagY + 14);
-        ctx.restore();
-      }
-    });
-
-    allPredictions.forEach((d) => {
-      if (!d.isIgnored && !d.isCameraTarget) {
-        const [x, y, w, h] = d.bbox;
-        ctx.save();
-        ctx.strokeStyle = d.evidence === 'visible-optical-cue' ? '#f59e0b' : '#38bdf8';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 4]);
-        ctx.strokeRect(x, y, w, h);
-        ctx.setLineDash([]);
-        const tag = `OBSERVATION · NOT A CAMERA: ${d.label}`;
-        ctx.font = 'bold 11px JetBrains Mono, monospace';
-        const tagWidth = ctx.measureText(tag).width + 12;
-        const tagY = Math.max(0, y - 22);
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-        ctx.fillRect(x, tagY, tagWidth, 20);
-        ctx.fillStyle = d.evidence === 'visible-optical-cue' ? '#fcd34d' : '#7dd3fc';
-        ctx.fillText(tag, x + 6, tagY + 14);
-        ctx.restore();
-      }
-    });
-
-    // 2. Subtle visual feedback for detections shielded by Ignore Masks (informative, non-alarming)
-    allPredictions.forEach((d) => {
-      if (d.isIgnored) {
-        const [x, y, w, h] = d.bbox;
-        ctx.save();
-        ctx.strokeStyle = '#f59e0b';
-        ctx.setLineDash([6, 6]);
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, w, h);
-
-        const tag = '🛡️ SKIPPED BY MASK';
-        ctx.font = '10px JetBrains Mono, monospace';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(x, Math.max(0, y - 18), 130, 18);
-        ctx.fillStyle = '#fbbf24';
-        ctx.fillText(tag, x + 5, Math.max(0, y - 5));
         ctx.restore();
       }
     });
