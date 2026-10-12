@@ -31,7 +31,8 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { detectorService, DetectionResult } from '../services/detector';
+import { detectorService } from '../services/detector';
+import type { DetectionResult } from '../services/detector';
 import { soundAlarm } from '../services/audio';
 import { AppSettings, ScanIncident, IgnoreMask } from '../types';
 import { FlashlightMode } from './QuickFlashlightBar';
@@ -52,6 +53,7 @@ interface Props {
   onThreatDetected: (threats: DetectionResult[], snapshot?: string) => void;
   onStatusChange: (status: {
     isScanning: boolean;
+    isPaused: boolean;
     threatDetected: boolean;
     threatCount: number;
     highestThreatLabel?: string;
@@ -98,6 +100,7 @@ export const CameraScanner: React.FC<Props> = ({
 
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [isCameraStarting, setIsCameraStarting] = useState<boolean>(false);
   const [modelReady, setModelReady] = useState<boolean>(false);
   const [modelLoading, setModelLoading] = useState<boolean>(true);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -158,6 +161,8 @@ export const CameraScanner: React.FC<Props> = ({
   }, [ignoreMasks]);
 
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraRequestIdRef = useRef<number>(0);
+  const cameraStartInProgressRef = useRef<boolean>(false);
   const animFrameId = useRef<number | null>(null);
   const lastFrameTime = useRef<number>(performance.now());
   const frameCount = useRef<number>(0);
@@ -207,16 +212,22 @@ export const CameraScanner: React.FC<Props> = ({
 
   // Start Video Stream
   const startCamera = useCallback(async () => {
+    const requestId = ++cameraRequestIdRef.current;
     setCameraError(null);
 
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      const previousStream = streamRef.current;
       streamRef.current = null;
+      if (videoRef.current?.srcObject === previousStream) videoRef.current.srcObject = null;
+      previousStream.getTracks().forEach((track) => track.stop());
     }
 
+    let requestedStream: MediaStream | null = null;
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access is unavailable. Open this page in a supported mobile browser over HTTPS (or localhost), then allow camera permission.');
+        throw new Error(
+          'Camera access requires a supported browser in a secure context (HTTPS or localhost).'
+        );
       }
 
       const videoConstraints: MediaTrackConstraints = {
@@ -224,9 +235,8 @@ export const CameraScanner: React.FC<Props> = ({
         width: { ideal: settings.cameraResolution === 'high' ? 1920 : 1280 },
         height: { ideal: settings.cameraResolution === 'high' ? 1080 : 720 },
       };
-      let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        requestedStream = await navigator.mediaDevices.getUserMedia({
           video: videoConstraints,
           audio: false,
         });
@@ -235,7 +245,7 @@ export const CameraScanner: React.FC<Props> = ({
           error instanceof DOMException &&
           (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError');
         if (!isFacingModeError || facingMode !== 'environment') throw error;
-        stream = await navigator.mediaDevices.getUserMedia({
+        requestedStream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: videoConstraints.width,
             height: videoConstraints.height,
@@ -243,16 +253,45 @@ export const CameraScanner: React.FC<Props> = ({
           audio: false,
         });
       }
+      if (!requestedStream) throw new Error('Camera stream could not be started.');
+      const activeStream = requestedStream;
 
-      streamRef.current = stream;
+      if (requestId !== cameraRequestIdRef.current) {
+        activeStream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+
+      streamRef.current = activeStream;
+      activeStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (streamRef.current !== activeStream) return;
+        streamRef.current = null;
+        if (videoRef.current?.srcObject === activeStream) videoRef.current.srcObject = null;
+        activeStream.getTracks().forEach((streamTrack) => streamTrack.stop());
+        setCameraError('The camera feed ended. It may have been disconnected or its permission revoked. Start scanning to reconnect.');
+        setIsScanning(false);
+        setIsPaused(false);
+        setThreatActive(false);
+        lastDetectionsRef.current = [];
+        onThreatDetected([]);
+        soundAlarm.stopAlarm();
+        setHasTorch(false);
+        onHardwareTorchStatusChange?.(false);
+      });
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        videoRef.current.srcObject = activeStream;
         await videoRef.current.play();
       }
 
+      if (requestId !== cameraRequestIdRef.current) {
+        if (streamRef.current === activeStream) streamRef.current = null;
+        activeStream.getTracks().forEach((track) => track.stop());
+        if (videoRef.current?.srcObject === activeStream) videoRef.current.srcObject = null;
+        return false;
+      }
+
       // Check torch capability on camera track
-      const track = stream.getVideoTracks()[0];
+      const track = activeStream.getVideoTracks()[0];
       if (track && typeof track.getCapabilities === 'function') {
         const capabilities = track.getCapabilities() as { torch?: boolean };
         const torchSupported = Boolean(capabilities && capabilities.torch);
@@ -268,22 +307,35 @@ export const CameraScanner: React.FC<Props> = ({
       }
       return true;
     } catch (err: unknown) {
+      if (requestId !== cameraRequestIdRef.current) {
+        requestedStream?.getTracks().forEach((track) => track.stop());
+        return false;
+      }
       console.error('Camera stream error:', err);
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      if (videoRef.current) {
+      if (streamRef.current === requestedStream) streamRef.current = null;
+      requestedStream?.getTracks().forEach((track) => track.stop());
+      if (videoRef.current?.srcObject === requestedStream) {
         videoRef.current.srcObject = null;
       }
+      setIsScanning(false);
+      setIsPaused(false);
+      soundAlarm.stopAlarm();
       setHasTorch(false);
       onHardwareTorchStatusChange?.(false);
       let message = 'Unable to access camera.';
       if (err instanceof DOMException) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
           message = 'Camera permission denied. Please allow camera permissions in your browser address bar.';
+        } else if (err.name === 'SecurityError') {
+          message = 'Camera access is blocked. Open the deployed site over HTTPS and check browser privacy permissions.';
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
           message = 'No video camera detected on this device.';
         } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
           message = 'Camera is already in use by another application or tab.';
+        } else if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
+          message = 'The camera could not provide the requested resolution. Try standard image quality or another camera.';
+        } else if (err.name === 'AbortError') {
+          message = 'The camera request was interrupted. Please try again.';
         }
       } else if (err instanceof Error) {
         message = err.message;
@@ -294,8 +346,10 @@ export const CameraScanner: React.FC<Props> = ({
   }, [facingMode, onHardwareTorchStatusChange, settings.cameraResolution]);
 
   const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraRequestIdRef.current++;
+    const activeStream = streamRef.current;
     streamRef.current = null;
+    activeStream?.getTracks().forEach((track) => track.stop());
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.srcObject = null;
@@ -305,16 +359,27 @@ export const CameraScanner: React.FC<Props> = ({
     onSetFlashlightMode('off');
     setThreatActive(false);
     lastDetectionsRef.current = [];
+    setFps(0);
+    fpsRef.current = 0;
+    frameCount.current = 0;
     onThreatDetected([]);
     soundAlarm.stopAlarm();
   }, [onHardwareTorchStatusChange, onSetFlashlightMode, onThreatDetected]);
 
   const handleStartScan = async () => {
+    if (cameraStartInProgressRef.current) return;
+    cameraStartInProgressRef.current = true;
+    setIsCameraStarting(true);
     soundAlarm.init();
-    const cameraReady = streamRef.current !== null || (await startCamera());
-    if (cameraReady) {
-      setIsScanning(true);
-      setIsPaused(false);
+    try {
+      const cameraReady = streamRef.current !== null || (await startCamera());
+      if (cameraReady) {
+        setIsScanning(true);
+        setIsPaused(false);
+      }
+    } finally {
+      cameraStartInProgressRef.current = false;
+      setIsCameraStarting(false);
     }
   };
 
@@ -324,9 +389,11 @@ export const CameraScanner: React.FC<Props> = ({
 
   useEffect(() => {
     return () => {
+      cameraRequestIdRef.current++;
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+        const activeStream = streamRef.current;
         streamRef.current = null;
+        activeStream.getTracks().forEach((track) => track.stop());
       }
       soundAlarm.stopAlarm();
     };
@@ -472,7 +539,9 @@ export const CameraScanner: React.FC<Props> = ({
     const dataUrl = offscreen.toDataURL('image/jpeg', 0.9);
 
     const latestDetections = lastDetectionsRef.current;
-    const highest = latestDetections.find((d) => d.threatLevel === 'DANGER') || latestDetections[0];
+    const highest = latestDetections.find(
+      (d) => d.isCameraTarget && d.threatLevel === 'DANGER'
+    );
 
     const incident: ScanIncident = {
       id: `incident_${Date.now()}`,
@@ -513,7 +582,7 @@ export const CameraScanner: React.FC<Props> = ({
     captureEvidenceSnapshot(true);
   };
 
-  // Main Detection Loop: Camera-Only Processing with Ignore Mask Exclusion
+  // Main detection loop: model inference with optional ignore-mask filtering.
   useEffect(() => {
     let isRunning = true;
     let idleStatusReported = false;
@@ -525,10 +594,12 @@ export const CameraScanner: React.FC<Props> = ({
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const container = containerRef;
+      const activeStream = streamRef.current;
 
       if (
         video &&
         canvas &&
+        activeStream &&
         video.readyState >= 2 &&
         isScanning &&
         !isPaused &&
@@ -554,6 +625,7 @@ export const CameraScanner: React.FC<Props> = ({
               settings.sensitivity,
               settings.scanPerformance
             );
+            if (!isRunning || streamRef.current !== activeStream) return;
 
             frameCount.current++;
             const now = performance.now();
@@ -574,7 +646,7 @@ export const CameraScanner: React.FC<Props> = ({
 
             let skippedByMaskCount = 0;
 
-            // Filter ONLY genuine camera threats AND SKIP anything inside ignore masks
+            // Filter supported camera-capable device candidates and skip masked regions.
             const cameraThreats = predictions.filter((p) => {
               if (!p.isCameraTarget || p.threatLevel !== 'DANGER') return false;
 
@@ -729,9 +801,10 @@ export const CameraScanner: React.FC<Props> = ({
               cameraThreats.length !== lastPublishedThreatCount.current ||
               completedAt - lastStatusPublishTime.current >= 500
             ) {
-              onThreatDetected(cameraThreats);
+              onThreatDetected(predictions);
               onStatusChange({
                 isScanning: true,
+                isPaused: false,
                 threatDetected: hasCamera,
                 threatCount: cameraThreats.length,
                 highestThreatLabel: (centerMostIndex >= 0 ? cameraThreats[centerMostIndex] : cameraThreats[0])?.label,
@@ -759,8 +832,8 @@ export const CameraScanner: React.FC<Props> = ({
                   confidence: top.score,
                   priority: 'MEDIUM',
                   notes: cameraThreats.length > 1
-                    ? `COCO-SSD classified ${cameraThreats.length} phone-like object candidate(s). Center candidate: ${top.label}, score ${(top.score * 100).toFixed(1)}%. Camera status is unconfirmed.`
-                    : `COCO-SSD phone-class candidate, score ${(top.score * 100).toFixed(1)}%. This does not confirm a hidden camera or recording.`,
+                    ? `COCO-SSD classified ${cameraThreats.length} camera-capable device candidate(s). Center candidate: ${top.label}, score ${(top.score * 100).toFixed(1)}%. Camera status is unconfirmed.`
+                      : `COCO-SSD ${top.class} candidate, score ${(top.score * 100).toFixed(1)}%. This does not confirm a hidden camera or recording.`,
                 });
               }
             } else {
@@ -775,9 +848,24 @@ export const CameraScanner: React.FC<Props> = ({
             console.error('Detection cycle error:', err);
             setModelError(`Object detection failed: ${message}`);
             setModelReady(false);
+            setIsScanning(false);
+            setIsPaused(false);
+            streamRef.current?.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+            if (videoRef.current) videoRef.current.srcObject = null;
             setThreatActive(false);
             lastDetectionsRef.current = [];
             onThreatDetected([]);
+            onStatusChange({
+              isScanning: false,
+              isPaused: false,
+              threatDetected: false,
+              threatCount: 0,
+              fps: 0,
+            });
+            setFps(0);
+            fpsRef.current = 0;
+            frameCount.current = 0;
             soundAlarm.stopAlarm();
           }
         }
@@ -791,10 +879,15 @@ export const CameraScanner: React.FC<Props> = ({
         if (!idleStatusReported) {
           onStatusChange({
             isScanning: false,
+            isPaused,
             threatDetected: false,
             threatCount: 0,
             fps: 0,
           });
+          onThreatDetected([]);
+          setFps(0);
+          fpsRef.current = 0;
+          frameCount.current = 0;
           idleStatusReported = true;
           lastPublishedThreat.current = false;
           lastPublishedThreatCount.current = 0;
@@ -847,8 +940,7 @@ export const CameraScanner: React.FC<Props> = ({
     containerRef,
   ]);
 
-  // Render Overlays: Exclusively Red/Gold Bounding Boxes on genuine camera targets
-  // Prominently highlights center-most candidate when multiple suspicious objects are identified simultaneously
+  // Render people as informational detections and camera-capable devices as red candidates.
   const drawOverlays = (
     ctx: CanvasRenderingContext2D,
     width: number,
@@ -859,7 +951,27 @@ export const CameraScanner: React.FC<Props> = ({
     lockData: CenterLockInfo | null = null
   ) => {
     const isMultiCandidate = unmaskedThreats.length > 1;
-    // 1. Draw Active Threats
+    allPredictions.forEach((d) => {
+      if (d.class.toLowerCase() !== 'person') return;
+      const [x, y, w, h] = d.bbox;
+      ctx.save();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 6;
+      ctx.strokeRect(x, y, w, h);
+      const tag = `PERSON ${(d.score * 100).toFixed(0)}%`;
+      ctx.font = 'bold 11px JetBrains Mono, monospace';
+      const tagWidth = ctx.measureText(tag).width + 12;
+      const tagY = Math.max(0, y - 20);
+      ctx.fillStyle = '#075985';
+      ctx.fillRect(x, tagY, tagWidth, 20);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.fillText(tag, x + 6, tagY + 14);
+      ctx.restore();
+    });
+
+    // Draw supported camera-capable device candidates as red danger boxes.
     unmaskedThreats.forEach((d, idx) => {
       if (d.isCameraTarget && d.threatLevel === 'DANGER') {
         const [x, y, w, h] = d.bbox;
@@ -1686,6 +1798,7 @@ export const CameraScanner: React.FC<Props> = ({
               }
               setIsPaused(false);
             }}
+            disabled={isCameraStarting}
             className={`min-h-[48px] px-3 sm:px-5 py-2.5 rounded-xl text-[10px] sm:text-sm font-bold tracking-wide sm:tracking-wider flex items-center gap-1.5 sm:gap-2.5 shadow-xl transition-all cursor-pointer ${
               isScanning
                 ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-950/60 active:scale-95'
@@ -1701,8 +1814,10 @@ export const CameraScanner: React.FC<Props> = ({
             ) : (
               <>
                 <Play className="w-4 h-4 fill-current" />
-                <span className="sm:hidden">START</span>
-                <span className="hidden sm:inline">START SCAN</span>
+                <span className="sm:hidden">{isCameraStarting ? 'WAIT' : 'START'}</span>
+                <span className="hidden sm:inline">
+                  {isCameraStarting ? 'CONNECTING CAMERA…' : 'START SCAN'}
+                </span>
               </>
             )}
           </button>
@@ -1713,6 +1828,9 @@ export const CameraScanner: React.FC<Props> = ({
               if (nextPaused) {
                 setThreatActive(false);
                 lastDetectionsRef.current = [];
+                setFps(0);
+                fpsRef.current = 0;
+                frameCount.current = 0;
                 onThreatDetected([]);
               }
               setIsPaused(nextPaused);

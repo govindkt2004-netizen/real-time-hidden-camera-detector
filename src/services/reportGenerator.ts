@@ -44,7 +44,9 @@ export async function downloadSignedJsonReport(incidents: ScanIncident[]): Promi
     },
     summary: {
       totalDetections: incidents.length,
-      highThreatCount: incidents.filter((i) => i.threatClass.toLowerCase().includes('camera') || i.threatClass.toLowerCase().includes('phone')).length,
+      highThreatCount: incidents.filter((i) =>
+        ['camera', 'phone', 'laptop'].some((term) => i.threatClass.toLowerCase().includes(term))
+      ).length,
       averageConfidence: incidents.length > 0
         ? Number((incidents.reduce((acc, curr) => acc + curr.confidence, 0) / incidents.length).toFixed(3))
         : 0,
@@ -129,7 +131,7 @@ export async function downloadSignedPdfReport(incidents: ScanIncident[]): Promis
 
   // Audit Summary Stats
   const highThreatCount = incidents.filter(
-    (i) => i.threatClass.toLowerCase().includes('camera') || i.threatClass.toLowerCase().includes('phone')
+    (i) => ['camera', 'phone', 'laptop'].some((term) => i.threatClass.toLowerCase().includes(term))
   ).length;
 
   const avgConfidence = incidents.length > 0

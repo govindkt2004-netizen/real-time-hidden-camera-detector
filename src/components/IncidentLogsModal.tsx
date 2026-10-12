@@ -16,11 +16,6 @@ import {
   Camera,
   Bookmark,
 } from 'lucide-react';
-import {
-  downloadSignedPdfReport,
-  downloadSignedJsonReport,
-  computeIntegritySignature,
-} from '../services/reportGenerator';
 
 interface Props {
   isOpen: boolean;
@@ -37,20 +32,25 @@ export const IncidentLogsModal: React.FC<Props> = ({
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
+  const [exportFeedback, setExportFeedback] = useState<{ message: string; isError: boolean } | null>(
+    null
+  );
 
   if (!isOpen) return null;
 
   const handleExportPdf = async () => {
     setIsExporting(true);
-    setExportSuccessMsg(null);
+    setExportFeedback(null);
     try {
+      const { downloadSignedPdfReport } = await import('../services/reportGenerator');
       await downloadSignedPdfReport(incidents);
-      setExportSuccessMsg('Signed PDF Report downloaded successfully');
+      setExportFeedback({ message: 'Signed PDF Report downloaded successfully', isError: false });
       setShowExportMenu(false);
-      setTimeout(() => setExportSuccessMsg(null), 4000);
-    } catch (err) {
+      setTimeout(() => setExportFeedback(null), 4000);
+    } catch (err: unknown) {
       console.error('PDF Export failed:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setExportFeedback({ message: `PDF export failed: ${message}`, isError: true });
     } finally {
       setIsExporting(false);
     }
@@ -58,14 +58,17 @@ export const IncidentLogsModal: React.FC<Props> = ({
 
   const handleExportJson = async () => {
     setIsExporting(true);
-    setExportSuccessMsg(null);
+    setExportFeedback(null);
     try {
+      const { downloadSignedJsonReport } = await import('../services/reportGenerator');
       await downloadSignedJsonReport(incidents);
-      setExportSuccessMsg('Signed JSON Report downloaded successfully');
+      setExportFeedback({ message: 'Signed JSON Report downloaded successfully', isError: false });
       setShowExportMenu(false);
-      setTimeout(() => setExportSuccessMsg(null), 4000);
-    } catch (err) {
+      setTimeout(() => setExportFeedback(null), 4000);
+    } catch (err: unknown) {
       console.error('JSON Export failed:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setExportFeedback({ message: `JSON export failed: ${message}`, isError: true });
     } finally {
       setIsExporting(false);
     }
@@ -177,10 +180,21 @@ export const IncidentLogsModal: React.FC<Props> = ({
         </div>
 
         {/* Success Alert Banner */}
-        {exportSuccessMsg && (
-          <div className="bg-emerald-950/80 border-b border-emerald-500/30 px-5 py-2.5 flex items-center gap-2 text-xs text-emerald-200">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{exportSuccessMsg}</span>
+        {exportFeedback && (
+          <div
+            className={`px-5 py-2.5 flex items-center gap-2 text-xs ${
+              exportFeedback.isError
+                ? 'bg-red-950/80 border-b border-red-500/30 text-red-200'
+                : 'bg-emerald-950/80 border-b border-emerald-500/30 text-emerald-200'
+            }`}
+            role={exportFeedback.isError ? 'alert' : 'status'}
+          >
+            {exportFeedback.isError ? (
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            )}
+            <span>{exportFeedback.message}</span>
           </div>
         )}
 

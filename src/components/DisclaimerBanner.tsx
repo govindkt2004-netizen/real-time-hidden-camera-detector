@@ -26,7 +26,7 @@ export const DisclaimerBanner: React.FC = () => {
             <strong className="text-amber-200 ml-1">
               It does not and cannot claim to detect every concealed camera.
             </strong>{' '}
-            The bundled COCO-SSD model can identify its trained “cell phone” and “laptop” object classes, but is not trained to recognize camera lenses, dedicated cameras, pinhole lenses, or camera modules. A laptop detection identifies the laptop body; it does not verify that a built-in camera is present, visible, or active. Detected devices are not proof of recording. Objects hidden behind opaque materials, powered-off devices, and details below the image resolution cannot be identified. Low light, distance, camera optics, and motion further reduce reliability.
+            The bundled COCO-SSD model can identify its trained “person”, “cell phone”, and “laptop” object classes, but is not trained to recognize camera lenses, dedicated cameras, pinhole lenses, or camera modules. Person boxes and counts are estimates, not unique-person tracking. A laptop detection identifies the laptop body; it does not verify that a built-in camera is present, visible, or active. Detected devices are not proof of recording. Objects hidden behind opaque materials, powered-off devices, and details below the image resolution cannot be identified. Low light, distance, camera optics, and motion further reduce reliability.
           </p>
 
           {expanded && (

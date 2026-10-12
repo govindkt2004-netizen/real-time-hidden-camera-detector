@@ -1,8 +1,9 @@
 import React from 'react';
-import { AlertTriangle, ShieldCheck, PauseCircle, Activity } from 'lucide-react';
+import { AlertTriangle, PauseCircle, Activity } from 'lucide-react';
 
 interface Props {
   isScanning: boolean;
+  isPaused?: boolean;
   threatDetected: boolean;
   threatCount: number;
   highestThreatLabel?: string;
@@ -10,10 +11,20 @@ interface Props {
 
 export const DetectionStatusBadge: React.FC<Props> = ({
   isScanning,
+  isPaused = false,
   threatDetected,
   threatCount,
   highestThreatLabel,
 }) => {
+  if (isPaused) {
+    return (
+      <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-950/80 border border-amber-500/40 text-amber-300 text-xs font-mono font-medium shadow-sm">
+        <PauseCircle className="w-4 h-4 text-amber-400" />
+        <span>SCANNER PAUSED</span>
+      </div>
+    );
+  }
+
   if (!isScanning) {
     return (
       <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-700/60 text-slate-400 text-xs font-mono font-medium shadow-sm">
@@ -42,7 +53,7 @@ export const DetectionStatusBadge: React.FC<Props> = ({
     <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-mono font-semibold shadow-sm">
       <Activity className="w-4 h-4 text-emerald-400 animate-spin" style={{ animationDuration: '3s' }} />
       <span className="tracking-wider">SCANNING</span>
-      <span className="text-emerald-500/70 text-[11px]">· NO MATCHING OBJECTS IN FRAME</span>
+      <span className="text-emerald-500/70 text-[11px]">· NO CAMERA-CAPABLE DEVICE CANDIDATES</span>
     </div>
   );
 };

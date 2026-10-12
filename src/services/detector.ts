@@ -1,5 +1,4 @@
-import * as tf from '@tensorflow/tfjs';
-import * as cocoSsd from '@tensorflow-models/coco-ssd';
+import type * as cocoSsd from '@tensorflow-models/coco-ssd';
 
 export interface DetectionResult {
   bbox: [number, number, number, number];
@@ -18,11 +17,24 @@ export interface DetectionResult {
 export type SensitivityLevel = 'high' | 'balanced' | 'strict';
 export type ScanPerformance = 'fast' | 'detail';
 
-const SUPPORTED_TARGET_LABELS: Record<string, string> = {
-  'cell phone': 'PHONE — CAMERA-CAPABLE DEVICE',
-  laptop: 'LAPTOP — CAMERA MAY BE PRESENT',
+const SUPPORTED_CLASSES: Record<
+  string,
+  { label: string; threatLevel: DetectionResult['threatLevel']; isCameraTarget: boolean }
+> = {
+  person: { label: 'PERSON', threatLevel: 'INFO', isCameraTarget: false },
+  'cell phone': {
+    label: 'PHONE — CAMERA-CAPABLE DEVICE',
+    threatLevel: 'DANGER',
+    isCameraTarget: true,
+  },
+  laptop: {
+    label: 'LAPTOP — CAMERA MAY BE PRESENT',
+    threatLevel: 'DANGER',
+    isCameraTarget: true,
+  },
 };
 const TILE_SCALE = 0.6;
+const MAX_DETECTIONS_PER_PASS = 25;
 
 export class DetectorService {
   private model: cocoSsd.ObjectDetection | null = null;
@@ -38,16 +50,22 @@ export class DetectorService {
     this.loadError = null;
     this.loadPromise = (async () => {
       try {
+        const [tf, cocoSsdModel] = await Promise.all([
+          import('@tensorflow/tfjs'),
+          import('@tensorflow-models/coco-ssd'),
+        ]);
+        let webglAvailable = false;
         try {
-          const webglAvailable = await tf.setBackend('webgl');
-          if (!webglAvailable) {
-            console.warn('TensorFlow.js WebGL backend unavailable; using the default backend.');
-          }
+          webglAvailable = await tf.setBackend('webgl');
         } catch (error: unknown) {
-          console.warn('TensorFlow.js WebGL initialization failed; using the default backend.', error);
+          console.warn('TensorFlow.js WebGL initialization failed; trying the CPU backend.', error);
+        }
+        if (!webglAvailable) {
+          const cpuAvailable = await tf.setBackend('cpu');
+          if (!cpuAvailable) throw new Error('Neither WebGL nor CPU inference backend is available.');
         }
         await tf.ready();
-        this.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        this.model = await cocoSsdModel.load({ base: 'lite_mobilenet_v2' });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to load TensorFlow.js model';
         this.loadError = message;
@@ -86,7 +104,7 @@ export class DetectorService {
     const scoreThreshold = sensitivity === 'high' ? 0.38 : sensitivity === 'balanced' ? 0.48 : 0.62;
     const predictions: DetectionResult[] = [];
 
-    const fullFrame = await this.model.detect(videoElement, 10, scoreThreshold);
+    const fullFrame = await this.model.detect(videoElement, MAX_DETECTIONS_PER_PASS, scoreThreshold);
     predictions.push(...this.toResults(fullFrame, 0, 0, width, height, width, height));
 
     if (performance === 'detail' && this.tileContext) {
@@ -114,7 +132,11 @@ export class DetectorService {
           this.tileCanvas.width,
           this.tileCanvas.height
         );
-        const tilePredictions = await this.model.detect(this.tileCanvas, 10, scoreThreshold);
+        const tilePredictions = await this.model.detect(
+          this.tileCanvas,
+          MAX_DETECTIONS_PER_PASS,
+          scoreThreshold
+        );
         predictions.push(
           ...this.toResults(
             tilePredictions,
@@ -147,27 +169,29 @@ export class DetectorService {
   ): DetectionResult[] {
     return predictions
       .flatMap((prediction) => {
-        const label = SUPPORTED_TARGET_LABELS[prediction.class.toLowerCase()];
-        if (!label) return [];
+        const classification = SUPPORTED_CLASSES[prediction.class.toLowerCase()];
+        if (!classification) return [];
         const scaleX = regionWidth / inferenceWidth;
         const scaleY = regionHeight / inferenceHeight;
         const [x, y, boxWidth, boxHeight] = prediction.bbox;
-        return [{
-          bbox: [
-            offsetX + x * scaleX,
-            offsetY + y * scaleY,
-            boxWidth * scaleX,
-            boxHeight * scaleY,
-          ] as [number, number, number, number],
-          class: prediction.class,
-          score: prediction.score,
-          threatLevel: 'DANGER' as const,
-          label,
-          isCameraTarget: true,
-          imageWidth,
-          imageHeight,
-          detectedAt: Date.now(),
-        }];
+        return [
+          {
+            bbox: [
+              offsetX + x * scaleX,
+              offsetY + y * scaleY,
+              boxWidth * scaleX,
+              boxHeight * scaleY,
+            ] as [number, number, number, number],
+            class: prediction.class,
+            score: prediction.score,
+            threatLevel: classification.threatLevel,
+            label: classification.label,
+            isCameraTarget: classification.isCameraTarget,
+            imageWidth,
+            imageHeight,
+            detectedAt: Date.now(),
+          },
+        ];
       });
   }
 
@@ -178,6 +202,7 @@ export class DetectorService {
     for (const candidate of sorted) {
       const [x1, y1, w1, h1] = candidate.bbox;
       const overlaps = kept.some((accepted) => {
+        if (candidate.class !== accepted.class) return false;
         const [x2, y2, w2, h2] = accepted.bbox;
         const intersectionWidth = Math.max(0, Math.min(x1 + w1, x2 + w2) - Math.max(x1, x2));
         const intersectionHeight = Math.max(0, Math.min(y1 + h1, y2 + h2) - Math.max(y1, y2));

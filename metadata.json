@@ -1,6 +1,6 @@
 {
   "name": "Real-Time Hidden Camera Detector",
-  "description": "Inspect a live camera feed with local COCO-SSD object detection. Phone detections are unconfirmed candidates, not proof of hidden cameras.",
+  "description": "Inspect a live camera feed with on-device people detection and phone or laptop candidates. Device detections do not confirm hidden cameras.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

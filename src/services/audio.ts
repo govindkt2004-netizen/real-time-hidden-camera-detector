@@ -19,7 +19,9 @@ class SoundAlarmManager {
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
+      this.ctx.resume().catch((error: unknown) => {
+        console.warn('Audio playback is blocked until the browser allows audio.', error);
+      });
     }
   }
 
@@ -58,8 +60,8 @@ class SoundAlarmManager {
 
       osc.start();
       osc.stop(this.ctx.currentTime + 0.05);
-    } catch {
-      // Audio context might need user interaction
+    } catch (error: unknown) {
+      console.warn('Unable to play scan tick.', error);
     }
   }
 
@@ -97,8 +99,8 @@ class SoundAlarmManager {
       osc2.start(now);
       osc1.stop(now + 0.23);
       osc2.stop(now + 0.23);
-    } catch {
-      // Fail silently if audio blocked
+    } catch (error: unknown) {
+      console.warn('Unable to play danger alert.', error);
     }
   }
 
@@ -107,6 +109,8 @@ class SoundAlarmManager {
    */
   public triggerAlarmSequence() {
     if (this.isMuted || this.isAlarmPlaying) return;
+    this.init();
+    if (!this.ctx) return;
     this.isAlarmPlaying = true;
     this.playDangerPulse();
 

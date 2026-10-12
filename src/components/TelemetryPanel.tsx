@@ -24,6 +24,7 @@ export const TelemetryPanel: React.FC<Props> = ({
   const cameraDetections = detections.filter(
     (d) => d.isCameraTarget && d.threatLevel === 'DANGER' && !d.isIgnored
   );
+  const peopleDetections = detections.filter((d) => d.class.toLowerCase() === 'person');
   const ignoredDetections = detections.filter((d) => d.isIgnored);
 
   // Compute center-most candidate if multiple object candidates exist
@@ -53,6 +54,9 @@ export const TelemetryPanel: React.FC<Props> = ({
         </div>
         <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
           <span>
+            PEOPLE IN FRAME: <strong className="text-slate-200 tabular-nums">{peopleDetections.length}</strong>
+          </span>
+          <span>
             FPS: <strong className="text-slate-200 tabular-nums">{fps}</strong>
           </span>
           <span aria-hidden="true">·</span>
@@ -76,7 +80,7 @@ export const TelemetryPanel: React.FC<Props> = ({
           <div className="flex items-center justify-between text-xs font-semibold mb-2">
             <span className="text-red-400 flex items-center gap-1.5 font-mono">
               <ShieldAlert className="w-4 h-4 text-red-500" />
-              CAMERA-LIKE DEVICE CANDIDATES ({cameraDetections.length})
+              CAMERA-CAPABLE DEVICE CANDIDATES ({cameraDetections.length})
             </span>
             {threatDetected && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-mono font-bold animate-pulse">
@@ -154,16 +158,16 @@ export const TelemetryPanel: React.FC<Props> = ({
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Model Architecture:</span>
-            <span className="text-slate-200">COCO-SSD MobileNetV2 Lite · tiled inference</span>
+            <span className="text-slate-200">COCO-SSD MobileNetV2 Lite · full-frame + optional tiles</span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Target Filter:</span>
-            <span className="text-red-300 font-semibold">Phones and laptops</span>
+            <span className="text-red-300 font-semibold">People · phones · laptops</span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
-            <span>Ignore Masks (False-Positives):</span>
+            <span>Ignore Masks (Exclusion Zones):</span>
             <span className="text-amber-300 font-semibold flex items-center gap-1">
               <ShieldOff className="w-3.5 h-3.5 text-amber-400" />
               <span>
@@ -175,7 +179,7 @@ export const TelemetryPanel: React.FC<Props> = ({
           <div className="flex justify-between py-1 text-slate-400">
             <span>Shielded Detections:</span>
             <span className={ignoredCount > 0 ? 'text-amber-400 font-bold' : 'text-slate-400'}>
-              {ignoredCount > 0 ? `${ignoredCount} False-Alarm(s) Blocked` : '0 Blocked'}
+              {ignoredCount > 0 ? `${ignoredCount} Candidate(s) Ignored` : '0 Ignored'}
             </span>
           </div>
         </div>
