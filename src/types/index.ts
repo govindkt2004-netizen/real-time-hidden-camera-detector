@@ -1,6 +1,3 @@
-import { DetectionResult } from '../services/detector';
-import { LensGlint } from '../services/glint';
-
 export interface ScanIncident {
   id: string;
   timestamp: number;
@@ -29,24 +26,9 @@ export interface AppSettings {
   theme: ThemeMode;
   audioAlarmEnabled: boolean;
   sensitivity: 'high' | 'balanced' | 'strict';
-  glintDetectionEnabled: boolean;
   biometricLockEnabled: boolean;
   cameraFacing: 'environment' | 'user';
   cameraResolution: 'standard' | 'high';
   fpsLimit: 5 | 10 | 15;
   scanPerformance: 'fast' | 'detail';
-}
-
-export interface ActiveScanState {
-  isScanning: boolean;
-  isModelReady: boolean;
-  modelError: string | null;
-  cameraError: string | null;
-  hasCameraPermission: boolean;
-  activeDetections: DetectionResult[];
-  activeGlints: LensGlint[];
-  threatDetected: boolean;
-  fps: number;
-  torchAvailable: boolean;
-  isTorchOn: boolean;
 }

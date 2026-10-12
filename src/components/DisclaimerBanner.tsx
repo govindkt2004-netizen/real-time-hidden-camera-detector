@@ -34,30 +34,30 @@ export const DisclaimerBanner: React.FC = () => {
               <div className="p-2.5 rounded-lg bg-black/40 border border-amber-800/30">
                 <div className="flex items-center gap-1.5 font-semibold text-amber-300 mb-1">
                   <Eye className="w-4 h-4 text-amber-400" />
-                  <span>1. Optical Glint Sweep</span>
+                  <span>1. Manual Visual Sweep</span>
                 </div>
                 <p className="text-slate-300">
-                  Turn off room lights and turn on the scanner torch. Scan across smoke detectors, electrical outlets, alarm clocks, and mirror frames at an angle to spot pinpoint lens reflections.
+                  You can inspect suspicious objects with a separate light at different angles. Reflections are common and do not identify a camera; this app does not automatically detect or classify lens reflections.
                 </p>
               </div>
 
               <div className="p-2.5 rounded-lg bg-black/40 border border-amber-800/30">
                 <div className="flex items-center gap-1.5 font-semibold text-amber-300 mb-1">
                   <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>2. Infrared (IR) Check</span>
+                  <span>2. Infrared Limitations</span>
                 </div>
                 <p className="text-slate-300">
-                  Night-vision spy cameras emit 850nm/940nm IR LEDs invisible to human eyes. Your front or back camera sensor can detect them as bright purple/white glowing dots in total darkness.
+                  Phone cameras vary and may filter infrared light. This app cannot detect infrared emissions. A suitable IR-sensitive camera or dedicated inspection tool is required; visible bright points alone are not proof of a camera.
                 </p>
               </div>
 
               <div className="p-2.5 rounded-lg bg-black/40 border border-amber-800/30">
                 <div className="flex items-center gap-1.5 font-semibold text-amber-300 mb-1">
                   <Radio className="w-4 h-4 text-amber-400" />
-                  <span>3. Two-Way Mirror Test</span>
+                  <span>3. Mirror Test Limitations</span>
                 </div>
                 <p className="text-slate-300">
-                  Place your fingernail flat against the mirror surface. In a true mirror, there is a distinct gap between your nail and its reflection. If your nail touches its reflection directly, it may be two-way glass.
+                  The fingernail-gap test is not a reliable way to determine whether a mirror is two-way glass. Do not treat this test or this app as confirmation; seek a qualified inspection if you have a specific concern.
                 </p>
               </div>
             </div>

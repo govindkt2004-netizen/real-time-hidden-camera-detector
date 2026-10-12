@@ -1070,7 +1070,7 @@ export const CameraScanner: React.FC<Props> = ({
         if (isCenterMost) {
           const mainTag = `🎯 PRIORITY // CENTER LOCK: ${d.label} ${(d.score * 100).toFixed(0)}%`;
           const subTag = `ΔCENTER: ${lockData?.distPercent.toFixed(1)}% · ${
-            lockData?.isAutoZoomActive ? `AUTO-ZOOM ${zoomLevelRef.current}x` : 'FOCAL TARGET'
+            lockData?.isAutoZoomActive ? `DIGITAL ZOOM ${zoomLevelRef.current}x` : 'FOCAL TARGET'
           }`;
 
           ctx.font = 'bold 12px JetBrains Mono, monospace';
@@ -1189,7 +1189,7 @@ export const CameraScanner: React.FC<Props> = ({
         />
       </div>
 
-      {/* Screen perimeter light ring for low-light retroreflection */}
+      {/* Screen perimeter light ring for manual low-light inspection */}
       {screenIlluminator && (
         <div
           className={`absolute inset-0 pointer-events-none z-20 border-[24px] sm:border-[36px] border-white shadow-[inset_0_0_80px_rgba(255,255,255,0.95)] transition-opacity duration-150 ${
@@ -1383,11 +1383,11 @@ export const CameraScanner: React.FC<Props> = ({
                 ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400/50'
                 : 'bg-black/60 text-slate-400 border-white/10 hover:bg-black/80'
             }`}
-            title={`Auto-Center Zoom on Multi-Candidate: ${autoZoomEnabled ? 'ON' : 'OFF'}`}
+            title={`Auto-center digital zoom on multiple candidates: ${autoZoomEnabled ? 'ON' : 'OFF'}`}
           >
             <Focus className="w-4 h-4 text-cyan-400" />
             <span className="text-[10px] font-mono font-bold hidden md:inline">
-              {autoZoomEnabled ? `AUTO-ZOOM` : 'ZOOM OFF'}
+              {autoZoomEnabled ? `AUTO DIGITAL ZOOM` : 'ZOOM OFF'}
             </span>
           </button>
 

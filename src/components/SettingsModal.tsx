@@ -10,7 +10,6 @@ import {
   Fingerprint,
   Camera,
   Sliders,
-  Sparkles,
   Shield,
   Sun,
   Eye,
@@ -49,7 +48,7 @@ export const SettingsModal: React.FC<Props> = ({
     {
       id: 'tactical-red',
       label: 'Tactical Red (0-Lux Night Mode)',
-      desc: 'Pure monochrome red on OLED black for dark room glint sweeps without losing night-adapted vision',
+      desc: 'Pure monochrome red on OLED black for low-light viewing',
       previewClass: 'bg-black border-red-800 text-red-500',
     },
     {
@@ -204,7 +203,7 @@ export const SettingsModal: React.FC<Props> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  Play piercing audio siren immediately when a suspicious camera or mobile recorder is detected.
+                  Play an alarm when the model identifies a phone or laptop candidate. This is not confirmation of a camera.
                 </p>
               </div>
 
@@ -320,35 +319,6 @@ export const SettingsModal: React.FC<Props> = ({
             </p>
           </div>
 
-          {/* Optical Glint Detection */}
-          <div className="pt-4 border-t border-slate-800">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span className="text-sm font-semibold text-slate-200">
-                    Optical Lens Glint Filter
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Analyze high-contrast specular reflections bouncing from coated optical camera glass in dark rooms.
-                </p>
-              </div>
-
-              <button
-                onClick={() => onUpdateSettings({ glintDetectionEnabled: !settings.glintDetectionEnabled })}
-                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer ${
-                  settings.glintDetectionEnabled ? 'bg-amber-600' : 'bg-slate-800'
-                }`}
-              >
-                <div
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                    settings.glintDetectionEnabled ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

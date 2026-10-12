@@ -8,9 +8,11 @@ The bundled `@tensorflow-models/coco-ssd` `lite_mobilenet_v2` model was trained 
 
 Fast scan mode runs one full-frame model pass. Detail mode adds four overlapping image tiles to give small visible objects more input pixels, at the cost of slower updates. Camera image quality requests either 1280×720 or 1920×1080, subject to the camera and browser. Tiling and optical/digital zoom cannot recover detail the sensor did not resolve. The sensitivity setting changes the COCO-SSD score threshold; it does not add classes or train the model for small cameras. The maximum inference-rate control is 5, 10, or 15 frames per second; actual FPS is limited by the selected mode and device.
 
-The 10 m, 15 m, and 20 m values are manually selected test conditions, not measured distance or guaranteed operating ranges. Results at those distances depend on target size, resolution, optical zoom, focus, lighting, and motion. Candidates rendered smaller than 24 pixels are flagged as too small for reliable identification. No candidates means only that no supported object was identified in the analyzed frame.
+The 10 m, 15 m, and 20 m values are manually selected test conditions, not measured distance or guaranteed operating ranges. Results at those distances depend on target size, resolution, optical zoom, focus, lighting, and motion. Candidates rendered smaller than 24 pixels are flagged as too small for reliable identification. Auto-center magnification is digital display zoom; it does not add image detail or provide optical zoom. No candidates means only that no supported object was identified in the analyzed frame.
 
 This website cannot reliably identify devices hidden behind opaque materials, powered-off devices, tiny lenses, or objects outside the model's trained categories. Laptop and phone detections do not mean the camera lens itself was detected. Use appropriate optical zoom or specialized inspection equipment when needed. Treat every result as an unconfirmed lead.
+
+The application does not automatically detect lens reflections or infrared emissions. Phone cameras vary in infrared sensitivity, and visible reflections or bright points are not evidence of a camera. The common fingernail-gap mirror test is not reliable for identifying two-way glass.
 
 ## Privacy and permissions
 
@@ -64,7 +66,6 @@ src/
     DisclaimerBanner.tsx
     IgnoreMaskBar.tsx
     IncidentLogsModal.tsx
-    MultiSensorHub.tsx
     Navbar.tsx
     QuickFlashlightBar.tsx
     SettingsModal.tsx
@@ -73,9 +74,6 @@ src/
     audio.ts
     biometric.ts
     detector.ts
-    emfSensor.ts
-    glint.ts
-    irPinholeSensor.ts
     reportGenerator.ts
   types/
     index.ts

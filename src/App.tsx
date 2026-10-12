@@ -1,6 +1,6 @@
 /**
  * Hidden camera detection & Optical Sweep
- * On-device ML visual detection & optical retroreflection scanner with biometric security.
+ * On-device ML visual detection and manual camera inspection tools.
  * Features regional ignore masks to exclude selected areas from candidate reporting.
  */
 
@@ -23,7 +23,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   audioAlarmEnabled: true,
   sensitivity: 'balanced',
-  glintDetectionEnabled: true,
   biometricLockEnabled: false,
   cameraFacing: 'environment',
   cameraResolution: 'standard',
@@ -151,10 +150,6 @@ export default function App() {
           stored.sensitivity === 'strict'
             ? stored.sensitivity
             : deviceDefaults.sensitivity,
-        glintDetectionEnabled:
-          typeof stored.glintDetectionEnabled === 'boolean'
-            ? stored.glintDetectionEnabled
-            : deviceDefaults.glintDetectionEnabled,
         biometricLockEnabled:
           typeof stored.biometricLockEnabled === 'boolean'
             ? stored.biometricLockEnabled
@@ -216,7 +211,7 @@ export default function App() {
 
   const [activeDetections, setActiveDetections] = useState<DetectionResult[]>([]);
 
-  // Flashlight & Optical Glint Illuminator State
+  // Flashlight and manual inspection lighting state
   const [flashlightMode, setFlashlightMode] = useState<FlashlightMode>('off');
   const [screenIlluminator, setScreenIlluminator] = useState<boolean>(false);
   const [hasHardwareTorch, setHasHardwareTorch] = useState<boolean>(false);

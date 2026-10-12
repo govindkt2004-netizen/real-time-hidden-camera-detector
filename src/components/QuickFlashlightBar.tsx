@@ -62,14 +62,14 @@ export const QuickFlashlightBar: React.FC<Props> = ({
           <div className="hidden md:flex flex-col text-left">
             <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Optical Glint Illuminator</span>
+              <span>Inspection Flashlight</span>
             </span>
             <span className="text-[11px] text-slate-400">
               {mode === 'strobe'
-                ? 'Pulsing light triggers blinking retroreflections from concealed glass lenses'
+                ? 'Intermittent light for manual visual inspection; reflections are not classified by the app'
                 : mode === 'steady'
-                ? 'Steady beam highlights pinhole aperture recesses in dark rooms'
-                : 'Click to illuminate surroundings and catch lens retroreflections'}
+                ? 'Steady light for manual visual inspection; it does not detect cameras'
+                : 'Illuminate the scene for manual inspection; the app does not detect lens reflections'}
             </span>
           </div>
         </div>
@@ -98,7 +98,7 @@ export const QuickFlashlightBar: React.FC<Props> = ({
                 ? 'bg-amber-500/30 text-amber-200 border border-amber-400 font-bold'
                 : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-slate-200'
             }`}
-            title="5Hz strobe pulse for finding optical retroreflections"
+            title="5 Hz strobe for manual visual inspection; no reflection detection is performed"
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
             <span>5Hz Strobe</span>
