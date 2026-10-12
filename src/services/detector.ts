@@ -18,7 +18,10 @@ export interface DetectionResult {
 export type SensitivityLevel = 'high' | 'balanced' | 'strict';
 export type ScanPerformance = 'fast' | 'detail';
 
-const SUPPORTED_TARGET_CLASSES = new Set(['cell phone']);
+const SUPPORTED_TARGET_LABELS: Record<string, string> = {
+  'cell phone': 'PHONE — CAMERA-CAPABLE DEVICE',
+  laptop: 'LAPTOP — CAMERA MAY BE PRESENT',
+};
 const TILE_SCALE = 0.6;
 
 export class DetectorService {
@@ -143,12 +146,13 @@ export class DetectorService {
     imageHeight = inferenceHeight
   ): DetectionResult[] {
     return predictions
-      .filter((prediction) => SUPPORTED_TARGET_CLASSES.has(prediction.class.toLowerCase()))
-      .map((prediction) => {
+      .flatMap((prediction) => {
+        const label = SUPPORTED_TARGET_LABELS[prediction.class.toLowerCase()];
+        if (!label) return [];
         const scaleX = regionWidth / inferenceWidth;
         const scaleY = regionHeight / inferenceHeight;
         const [x, y, boxWidth, boxHeight] = prediction.bbox;
-        return {
+        return [{
           bbox: [
             offsetX + x * scaleX,
             offsetY + y * scaleY,
@@ -158,12 +162,12 @@ export class DetectorService {
           class: prediction.class,
           score: prediction.score,
           threatLevel: 'DANGER' as const,
-          label: 'PHONE — CAMERA-CAPABLE DEVICE',
+          label,
           isCameraTarget: true,
           imageWidth,
           imageHeight,
           detectedAt: Date.now(),
-        };
+        }];
       });
   }
 

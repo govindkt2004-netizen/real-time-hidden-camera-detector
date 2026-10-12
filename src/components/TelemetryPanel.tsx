@@ -159,7 +159,7 @@ export const TelemetryPanel: React.FC<Props> = ({
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Target Filter:</span>
-            <span className="text-red-300 font-semibold">Cell phones only</span>
+            <span className="text-red-300 font-semibold">Phones and laptops</span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">

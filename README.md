@@ -4,13 +4,13 @@ A browser-based live camera inspection dashboard. It runs TensorFlow.js COCO-SSD
 
 ## What it can identify
 
-The bundled `@tensorflow-models/coco-ssd` `lite_mobilenet_v2` model was trained on the COCO object categories. This implementation only raises an alert for its **cell phone** category, since COCO-SSD does not provide a dedicated camera, webcam, CCTV, pinhole, or micro-camera class. A phone-shaped model prediction is a camera-capable object candidate, not confirmation of a hidden camera or that recording is taking place.
+The bundled `@tensorflow-models/coco-ssd` `lite_mobilenet_v2` model was trained on the COCO object categories. This implementation raises alerts for its **cell phone** and **laptop** categories. A laptop prediction identifies the laptop body; it does not resolve or verify the presence, visibility, or state of its built-in camera. COCO-SSD has no dedicated camera, webcam, CCTV, pinhole, or micro-camera class, so it cannot reliably detect all cameras. These device predictions are inspection candidates, not confirmation of a hidden camera or that recording is taking place.
 
 Fast scan mode runs one full-frame model pass. Detail mode adds four overlapping image tiles to give small visible objects more input pixels, at the cost of slower updates. Camera image quality requests either 1280×720 or 1920×1080, subject to the camera and browser. Tiling and optical/digital zoom cannot recover detail the sensor did not resolve. The sensitivity setting changes the COCO-SSD score threshold; it does not add classes or train the model for small cameras. The maximum inference-rate control is 5, 10, or 15 frames per second; actual FPS is limited by the selected mode and device.
 
 The 10 m, 15 m, and 20 m values are manually selected test conditions, not measured distance or guaranteed operating ranges. Results at those distances depend on target size, resolution, optical zoom, focus, lighting, and motion. Candidates rendered smaller than 24 pixels are flagged as too small for reliable identification. No candidates means only that no supported object was identified in the analyzed frame.
 
-This website cannot reliably identify devices hidden behind opaque materials, powered-off devices, tiny lenses, or objects outside the model's trained categories. Use appropriate optical zoom or specialized inspection equipment when needed. Treat every result as an unconfirmed lead.
+This website cannot reliably identify devices hidden behind opaque materials, powered-off devices, tiny lenses, or objects outside the model's trained categories. Laptop and phone detections do not mean the camera lens itself was detected. Use appropriate optical zoom or specialized inspection equipment when needed. Treat every result as an unconfirmed lead.
 
 ## Privacy and permissions
 

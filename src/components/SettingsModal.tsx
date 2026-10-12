@@ -258,11 +258,11 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
               {settings.sensitivity === 'balanced' &&
-                'Balanced threshold (48%). The model can label phones; it is not trained to recognize hidden-camera hardware.'}
+                'Balanced threshold (48%). The model can label phones and laptops; it is not trained to recognize hidden-camera hardware.'}
               {settings.sensitivity === 'high' &&
-                'Lower threshold (38%) may produce more phone candidates and false positives. It does not add new object classes.'}
+                'Lower threshold (38%) may produce more phone or laptop candidates and false positives. It does not add new object classes.'}
               {settings.sensitivity === 'strict' &&
-                'Higher threshold (62%) returns fewer phone candidates. A model confidence score is not proof that a device is recording.'}
+                'Higher threshold (62%) returns fewer phone or laptop candidates. A model confidence score is not proof that a device is recording.'}
             </p>
           </div>
 

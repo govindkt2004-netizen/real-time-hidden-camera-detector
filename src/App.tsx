@@ -230,7 +230,7 @@ export default function App() {
               <span>Live camera inspection</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              On-device object detection for visible phones that may contain cameras. A detected object is a candidate, not proof of a hidden camera.
+              On-device detection for visible phones and laptops that may contain cameras. A device candidate does not confirm its camera or prove a hidden camera.
             </p>
           </div>
 
