@@ -44,7 +44,7 @@ Manual Sweep checks visible reflection and aperture-like patterns only when enab
    ```
 
 4. Open the local URL printed by Vite (by default `http://localhost:3000`) and allow camera access.
-5. Start scanning, then use **Load Camera Model** to enable best-effort visible camera-like object prompts. This downloads about 230 MB of model files the first time. Use **Manual Sweep** only for separate neutral reflection/aperture cues. Settings adjust sensitivity, inference rate, and the alarm.
+5. Start scanning. The app automatically begins downloading and initializing the optional camera model (about 230 MB the first time); camera detection becomes active once the status says **CAMERA MODEL READY**. You can also load it with the camera-model button while scanning. Use **Manual Sweep** only for separate neutral reflection/aperture cues. Settings adjust sensitivity, inference rate, and the alarm.
 
 ### Mobile phones
 

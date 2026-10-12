@@ -127,6 +127,7 @@ export const CameraScanner: React.FC<Props> = ({
   const [cameraModelStatus, setCameraModelStatus] = useState<'not-loaded' | 'loading' | 'ready' | 'error'>('not-loaded');
   const [cameraModelProgress, setCameraModelProgress] = useState<number>(0);
   const [cameraModelError, setCameraModelError] = useState<string | null>(null);
+  const cameraModelLoadInProgressRef = useRef(false);
 
   // Drawing state for ignore masks
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
@@ -392,6 +393,7 @@ export const CameraScanner: React.FC<Props> = ({
       if (cameraReady) {
         setIsScanning(true);
         setIsPaused(false);
+        void handleLoadCameraModel();
       }
     } finally {
       cameraStartInProgressRef.current = false;
@@ -400,7 +402,12 @@ export const CameraScanner: React.FC<Props> = ({
   };
 
   const handleLoadCameraModel = async () => {
-    if (cameraModelStatus === 'loading' || cameraModelStatus === 'ready') return;
+    if (
+      cameraModelLoadInProgressRef.current ||
+      cameraModelStatus === 'loading' ||
+      cameraModelStatus === 'ready'
+    ) return;
+    cameraModelLoadInProgressRef.current = true;
     setCameraModelStatus('loading');
     setCameraModelProgress(0);
     setCameraModelError(null);
@@ -416,6 +423,8 @@ export const CameraScanner: React.FC<Props> = ({
       console.error('Visible camera model loading failed:', error);
       setCameraModelError(message);
       setCameraModelStatus('error');
+    } finally {
+      cameraModelLoadInProgressRef.current = false;
     }
   };
 
