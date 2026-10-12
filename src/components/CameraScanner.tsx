@@ -1782,7 +1782,9 @@ export const CameraScanner: React.FC<Props> = ({
               {cameraModelStatus === 'ready'
                 ? 'CAMERA MODEL ON'
                 : cameraModelStatus === 'loading'
-                ? `LOADING ${Math.round(cameraModelProgress)}%`
+                ? cameraModelProgress >= 100
+                  ? 'PREPARING MODEL…'
+                  : `DOWNLOADING ${Math.round(cameraModelProgress)}%`
                 : cameraModelStatus === 'error'
                 ? 'RETRY CAMERA MODEL'
                 : 'LOAD CAMERA MODEL'}

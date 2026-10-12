@@ -2,9 +2,9 @@ import type { ProgressInfo, ZeroShotObjectDetectionOutput } from '@huggingface/t
 import type { DetectionResult, SensitivityLevel } from './detector';
 
 const MODEL_ID = 'onnx-community/grounding-dino-tiny-ONNX';
-const CAMERA_LABELS = ['a visible camera device with a camera lens.'];
+const CAMERA_LABELS = ['a camera.'];
 const MIN_BOX_EDGE_PIXELS = 16;
-const MIN_BOX_AREA_RATIO = 0.0005;
+const MIN_BOX_AREA_RATIO = 0.00005;
 
 type CameraPipeline = import('@huggingface/transformers').AllTasks['zero-shot-object-detection'];
 
@@ -57,7 +57,7 @@ export class VisibleCameraDetector {
     if (image.readyState < 2 || !image.videoWidth || !image.videoHeight) return [];
     if (!this.context) throw new Error('The browser could not create a canvas for camera-model inference.');
 
-    const threshold = sensitivity === 'high' ? 0.55 : sensitivity === 'balanced' ? 0.65 : 0.75;
+    const threshold = sensitivity === 'high' ? 0.2 : sensitivity === 'balanced' ? 0.3 : 0.4;
     this.canvas.width = image.videoWidth;
     this.canvas.height = image.videoHeight;
     this.context.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
