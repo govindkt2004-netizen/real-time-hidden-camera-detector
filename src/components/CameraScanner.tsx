@@ -32,7 +32,6 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { detectorService } from '../services/detector';
 import type { DetectionResult } from '../services/detector';
 import { GlintDetector } from '../services/glint';
 import { VisibleApertureDetector } from '../services/visibleApertureDetector';
@@ -109,8 +108,6 @@ export const CameraScanner: React.FC<Props> = ({
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isCameraStarting, setIsCameraStarting] = useState<boolean>(false);
   const [modelReady, setModelReady] = useState<boolean>(false);
-  const [modelLoading, setModelLoading] = useState<boolean>(true);
-  const [modelError, setModelError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -191,33 +188,6 @@ export const CameraScanner: React.FC<Props> = ({
   // Strobe timer reference
   const strobeTimerRef = useRef<number | null>(null);
   const strobeStateRef = useRef<boolean>(false);
-
-  // Initialize TFJS / COCO-SSD Model
-  useEffect(() => {
-    let isMounted = true;
-    setModelLoading(true);
-    setModelError(null);
-
-    detectorService
-      .init()
-      .then(() => {
-        if (isMounted) {
-          setModelReady(true);
-          setModelLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (isMounted) {
-          const msg = err instanceof Error ? err.message : 'Detection model failed to load';
-          setModelError(msg);
-          setModelLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Update soundAlarm mute state from settings
   useEffect(() => {
@@ -417,10 +387,12 @@ export const CameraScanner: React.FC<Props> = ({
           setCameraModelProgress((current) => Math.max(current, progress.progress));
         }
       });
+      setModelReady(true);
       setCameraModelStatus('ready');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Camera model could not be loaded.';
       console.error('Visible camera model loading failed:', error);
+      setModelReady(false);
       setCameraModelError(message);
       setCameraModelStatus('error');
     } finally {
@@ -664,13 +636,6 @@ export const CameraScanner: React.FC<Props> = ({
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
           try {
-            // Analyze the full frame and overlapping crops with the loaded object detector.
-            const modelPredictions = await detectorService.detect(
-              video,
-              settings.sensitivity,
-              settings.scanPerformance
-            );
-            if (!isRunning || streamRef.current !== activeStream) return;
             if (
               cameraModelStatus === 'ready' &&
               visibleCameraDetector.isLoaded() &&
@@ -680,7 +645,8 @@ export const CameraScanner: React.FC<Props> = ({
               try {
                 cameraPredictionsRef.current = await visibleCameraDetector.detect(
                   video,
-                  settings.sensitivity
+                  settings.sensitivity,
+                  settings.scanPerformance
                 );
               } catch (error) {
                 const message = error instanceof Error ? error.message : 'Camera model inference failed.';
@@ -688,6 +654,7 @@ export const CameraScanner: React.FC<Props> = ({
                 cameraPredictionsRef.current = [];
                 setCameraModelError(message);
                 setCameraModelStatus('error');
+                setModelReady(false);
               }
               if (!isRunning || streamRef.current !== activeStream) return;
             }
@@ -735,29 +702,7 @@ export const CameraScanner: React.FC<Props> = ({
                     })),
                 ]
               : [];
-            const personDetections = modelPredictions.filter(
-              (prediction) => prediction.class.toLowerCase() === 'person'
-            );
-            const visibleCameraCandidates = cameraPredictionsRef.current.filter((candidate) =>
-              !personDetections.some((person) => {
-                const [cameraX, cameraY, cameraWidth, cameraHeight] = candidate.bbox;
-                const [personX, personY, personWidth, personHeight] = person.bbox;
-                const intersectionWidth = Math.max(
-                  0,
-                  Math.min(cameraX + cameraWidth, personX + personWidth) - Math.max(cameraX, personX)
-                );
-                const intersectionHeight = Math.max(
-                  0,
-                  Math.min(cameraY + cameraHeight, personY + personHeight) - Math.max(cameraY, personY)
-                );
-                const cameraArea = cameraWidth * cameraHeight;
-                return (
-                  cameraArea > 0 &&
-                  (intersectionWidth * intersectionHeight) / cameraArea >= 0.5
-                );
-              })
-            );
-            const predictions = [...modelPredictions, ...visibleCameraCandidates, ...opticalCues];
+            const predictions = [...cameraPredictionsRef.current, ...opticalCues];
 
             frameCount.current++;
             const now = performance.now();
@@ -976,7 +921,7 @@ export const CameraScanner: React.FC<Props> = ({
                     ? `Manual visual sweep found a ${top.class} cue (signal strength ${(top.score * 100).toFixed(1)}%). Reflections and apertures are common in harmless objects; this is not a camera-probability score or confirmation.`
                     : top.evidence === 'camera-model'
                     ? `Grounding DINO matched the visible image to the "${top.class}" prompt with score ${(top.score * 100).toFixed(1)}%. This is an unconfirmed open-vocabulary match, not proof of a camera or recording.`
-                    : `COCO-SSD ${top.class} observation, model score ${(top.score * 100).toFixed(1)}%. This does not confirm a camera or recording.`,
+                    : `Camera text-prompt match for "${top.class}" with score ${(top.score * 100).toFixed(1)}%. This is unconfirmed and does not prove a camera or recording.`,
                 });
               }
             } else {
@@ -989,7 +934,8 @@ export const CameraScanner: React.FC<Props> = ({
           } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown inference error';
             console.error('Detection cycle error:', err);
-            setModelError(`Object detection failed: ${message}`);
+            setCameraModelError(`Camera-model inference failed: ${message}`);
+            setCameraModelStatus('error');
             setModelReady(false);
             setIsScanning(false);
             setIsPaused(false);
@@ -1099,8 +1045,12 @@ export const CameraScanner: React.FC<Props> = ({
         d.threatLevel === 'DANGER'
       ) {
         const [x, y, w, h] = d.bbox;
-        const tag = `CAMERA-LIKE OBJECT — VERIFY: ${d.label}`;
+        const centerX = Math.round(((x + w / 2) / d.imageWidth) * 100);
+        const centerY = Math.round(((y + h / 2) / d.imageHeight) * 100);
+        const detectedTime = new Date(d.detectedAt).toLocaleTimeString();
+        const tag = `${d.class.toUpperCase()} · SCORE ${(d.score * 100).toFixed(0)}% · X ${centerX}% Y ${centerY}% · ${detectedTime}`;
         ctx.save();
+        ctx.globalAlpha = 0.7 + 0.3 * ((Math.sin(performance.now() / 180) + 1) / 2);
         ctx.strokeStyle = '#ef4444';
         ctx.lineWidth = 3;
         ctx.shadowColor = '#ef4444';
@@ -1277,7 +1227,7 @@ export const CameraScanner: React.FC<Props> = ({
           {threatActive ? (
             <div className="px-2 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-red-600 text-white font-mono text-[10px] sm:text-xs font-bold tracking-wider flex items-center gap-1.5 shadow-lg shadow-red-900/60 animate-pulse">
               <AlertTriangle className="w-4 h-4" />
-              <span>CAMERA-LIKE OBJECT DETECTED — VERIFY</span>
+              <span>CAMERA DETECTED — VERIFY CANDIDATE</span>
             </div>
           ) : isScanning && !isPaused ? (
             <div className="px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-xs font-semibold flex items-center gap-1.5">
@@ -1537,35 +1487,6 @@ export const CameraScanner: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Model Loading State */}
-      {modelLoading && (
-        <div className="absolute inset-0 z-40 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-12 h-12 border-2 border-red-500 border-t-transparent rounded-full animate-spin mb-4" />
-          <h4 className="text-sm font-bold text-slate-100 font-mono">INITIALIZING CAMERA DETECTION MODEL</h4>
-          <p className="text-xs text-slate-400 mt-1 max-w-sm">
-            Compiling on-device neural weights for camera optical detection...
-          </p>
-        </div>
-      )}
-
-      {/* Model Error */}
-      {modelError && (
-        <div className="absolute inset-0 z-40 bg-black/90 p-6 flex flex-col items-center justify-center text-center">
-          <AlertTriangle className="w-10 h-10 text-red-500 mb-3" />
-          <h4 className="text-base font-bold text-red-400">Object Detection Model Unavailable</h4>
-          <p className="text-xs text-slate-300 mt-2 max-w-md bg-red-950/40 p-3 rounded-lg border border-red-800 font-mono text-left">
-            {modelError}
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-white flex items-center gap-2 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Reload & Retry</span>
-          </button>
-        </div>
-      )}
-
       {/* Camera Error */}
       {cameraError && (
         <div className="absolute inset-0 z-40 bg-black/90 p-6 flex flex-col items-center justify-center text-center">
@@ -1786,7 +1707,7 @@ export const CameraScanner: React.FC<Props> = ({
             <Download className="w-4 h-4" />
             <span>
               {cameraModelStatus === 'ready'
-                ? 'CAMERA MODEL ON'
+                ? 'CAMERA MODEL READY'
                 : cameraModelStatus === 'loading'
                 ? cameraModelProgress >= 100
                   ? 'PREPARING MODEL…'

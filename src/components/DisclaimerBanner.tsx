@@ -26,7 +26,7 @@ export const DisclaimerBanner: React.FC = () => {
             <strong className="text-amber-200 ml-1">
               It does not and cannot claim to detect every concealed camera.
             </strong>{' '}
-            The bundled COCO-SSD model recognizes “cell phone” and “laptop” classes only; person detections are excluded. The optional Grounding DINO Tiny open-vocabulary model can flag visible objects matching camera-related text prompts, but it is not camera-specialist or validated for hidden-camera detection. False positives and missed cameras are possible; a model score is not a calibrated probability or confirmation. Manual sweep reflections and aperture-like patterns are not camera evidence. A laptop detection identifies its body, not whether a camera is present or active. Hidden cameras outside the frame or behind opaque material cannot be detected. An inactive camera may produce no visible cue, and range depends on target size, lighting, focus, and optics.
+            The live scan uses Grounding DINO Tiny with a generic “a camera” text prompt. This is an open-vocabulary text match, not a dedicated camera-trained class; this repository does not include a camera-labeled training dataset or fine-tuned camera-specific weights. A matching box is an unconfirmed candidate, and its score is not a calibrated probability. False positives and missed cameras are possible. Manual sweep reflections and aperture-like patterns are not camera evidence. Hidden cameras outside the frame or behind opaque material cannot be detected. An inactive camera may produce no visible cue, and range depends on target size, lighting, focus, and optics.
           </p>
 
           {expanded && (
@@ -37,7 +37,7 @@ export const DisclaimerBanner: React.FC = () => {
                   <span>1. Manual Visual Sweep</span>
                 </div>
                 <p className="text-slate-300">
-                  Load the optional camera model to flag visible camera-like objects. Manual sweep only marks bright points and dark aperture-like patterns as neutral cues; ordinary lights, screws, and shiny surfaces can produce them.
+                  The camera model loads when scanning begins and searches with one generic camera prompt. Manual sweep only marks bright points and dark aperture-like patterns as neutral cues; ordinary lights, screws, and shiny surfaces can produce them.
                 </p>
               </div>
 

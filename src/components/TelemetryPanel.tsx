@@ -145,24 +145,24 @@ export const TelemetryPanel: React.FC<Props> = ({
                 ? 'text-emerald-400 bg-emerald-950/80 border-emerald-800/40'
                 : 'text-amber-300 bg-amber-950/80 border-amber-800/40'
             }`}>
-              {cameraModelReady ? 'CAMERA MODEL READY' : 'CAMERA MODEL NOT LOADED'}
+              {cameraModelReady ? 'CAMERA MODEL READY' : 'CAMERA MODEL LOADING / OFF'}
             </span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Model Architecture:</span>
-            <span className="text-slate-200">COCO-SSD + optional Grounding DINO</span>
+            <span className="text-slate-200">Grounding DINO Tiny · ONNX Runtime Web</span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Target Filter:</span>
-            <span className="text-sky-300 font-semibold">COCO: phones · laptops (informational)</span>
+            <span className="text-sky-300 font-semibold">Camera-only text prompts</span>
           </div>
 
           <div className="py-1 border-b border-slate-900 text-slate-400">
             {cameraModelReady
-              ? 'Grounding DINO uses a general camera text prompt for visible objects; it is not camera-specialist or validated for hidden-device detection. Scores can be wrong.'
-              : 'Load the optional camera model in the scanner controls to check for visible camera-like objects. Phone, laptop, reflection, and aperture detections are not camera alerts.'}
+              ? 'Grounding DINO uses general open-vocabulary camera text prompts, not camera-specialist trained classes. Scores can be wrong.'
+              : 'The camera model loads when scanning starts. General object, reflection, and aperture cues are not camera alerts.'}
           </div>
 
           <div className="py-1 text-amber-300/90">

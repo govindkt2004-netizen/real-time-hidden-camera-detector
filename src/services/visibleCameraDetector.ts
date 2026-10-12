@@ -1,10 +1,11 @@
 import type { ProgressInfo, ZeroShotObjectDetectionOutput } from '@huggingface/transformers';
-import type { DetectionResult, SensitivityLevel } from './detector';
+import type { DetectionResult, ScanPerformance, SensitivityLevel } from './detector';
 
 const MODEL_ID = 'onnx-community/grounding-dino-tiny-ONNX';
-const CAMERA_LABELS = ['a camera.'];
+const CAMERA_PROMPTS = ['a camera.'];
 const MIN_BOX_EDGE_PIXELS = 16;
 const MIN_BOX_AREA_RATIO = 0.00005;
+const TILE_SCALE = 0.6;
 
 type CameraPipeline = import('@huggingface/transformers').AllTasks['zero-shot-object-detection'];
 
@@ -51,49 +52,85 @@ export class VisibleCameraDetector {
 
   public async detect(
     image: HTMLVideoElement,
-    sensitivity: SensitivityLevel
+    sensitivity: SensitivityLevel,
+    performance: ScanPerformance = 'fast'
   ): Promise<DetectionResult[]> {
     if (!this.model) throw new Error('The visible camera model has not finished loading.');
     if (image.readyState < 2 || !image.videoWidth || !image.videoHeight) return [];
     if (!this.context) throw new Error('The browser could not create a canvas for camera-model inference.');
 
-    const threshold = sensitivity === 'high' ? 0.2 : sensitivity === 'balanced' ? 0.3 : 0.4;
-    this.canvas.width = image.videoWidth;
-    this.canvas.height = image.videoHeight;
-    this.context.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
-    const output = await this.model([this.canvas], CAMERA_LABELS, { threshold, top_k: 20 });
-    const results = (Array.isArray(output[0]) ? output[0] : output) as ZeroShotObjectDetectionOutput;
-    const detections: DetectionResult[] = results
-      .filter((result) => {
-        const width = result.box.xmax - result.box.xmin;
-        const height = result.box.ymax - result.box.ymin;
-        return (
-          width >= MIN_BOX_EDGE_PIXELS &&
-          height >= MIN_BOX_EDGE_PIXELS &&
-          width * height >= image.videoWidth * image.videoHeight * MIN_BOX_AREA_RATIO
-        );
-      })
-      .map((result) => {
-        const label = result.label.replace(/^a /i, '').replace(/\.$/, '');
-        return {
-          bbox: [
-            result.box.xmin,
-            result.box.ymin,
-            result.box.xmax - result.box.xmin,
-            result.box.ymax - result.box.ymin,
-          ],
-          class: label,
-          score: result.score,
-          evidence: 'camera-model',
-          scoreMeaning: 'open-vocabulary-model-score',
-          threatLevel: 'DANGER',
-          label: `CAMERA-LIKE OBJECT — UNCONFIRMED (${label.toUpperCase()})`,
-          isCameraTarget: true,
-          imageWidth: image.videoWidth,
-          imageHeight: image.videoHeight,
-          detectedAt: Date.now(),
-        };
-      });
+    const threshold = sensitivity === 'high' ? 0.65 : sensitivity === 'balanced' ? 0.75 : 0.85;
+    const imageWidth = image.videoWidth;
+    const imageHeight = image.videoHeight;
+    const regions: { left: number; top: number; width: number; height: number }[] = [
+      { left: 0, top: 0, width: imageWidth, height: imageHeight },
+    ];
+    if (performance === 'detail') {
+      const tileWidth = Math.ceil(imageWidth * TILE_SCALE);
+      const tileHeight = Math.ceil(imageHeight * TILE_SCALE);
+      regions.push(
+        { left: 0, top: 0, width: tileWidth, height: tileHeight },
+        { left: imageWidth - tileWidth, top: 0, width: tileWidth, height: tileHeight },
+        { left: 0, top: imageHeight - tileHeight, width: tileWidth, height: tileHeight },
+        {
+          left: imageWidth - tileWidth,
+          top: imageHeight - tileHeight,
+          width: tileWidth,
+          height: tileHeight,
+        }
+      );
+    }
+
+    const detections: DetectionResult[] = [];
+    for (const region of regions) {
+      this.canvas.width = region.width;
+      this.canvas.height = region.height;
+      this.context.drawImage(
+        image,
+        region.left,
+        region.top,
+        region.width,
+        region.height,
+        0,
+        0,
+        region.width,
+        region.height
+      );
+      const output = await this.model([this.canvas], CAMERA_PROMPTS, { threshold, top_k: 20 });
+      const results = (Array.isArray(output[0]) ? output[0] : output) as ZeroShotObjectDetectionOutput;
+      detections.push(
+        ...results.flatMap((result): DetectionResult[] => {
+          const boxWidth = result.box.xmax - result.box.xmin;
+          const boxHeight = result.box.ymax - result.box.ymin;
+          if (
+            boxWidth < MIN_BOX_EDGE_PIXELS ||
+            boxHeight < MIN_BOX_EDGE_PIXELS ||
+            boxWidth * boxHeight < region.width * region.height * MIN_BOX_AREA_RATIO
+          ) {
+            return [];
+          }
+          const label = result.label.replace(/^a /i, '').replace(/\.$/, '');
+          return [{
+            bbox: [
+              region.left + result.box.xmin,
+              region.top + result.box.ymin,
+              boxWidth,
+              boxHeight,
+            ],
+            class: label,
+            score: result.score,
+            evidence: 'camera-model',
+            scoreMeaning: 'open-vocabulary-model-score',
+            threatLevel: 'DANGER',
+            label: `CAMERA-LIKE OBJECT — UNCONFIRMED (${label.toUpperCase()})`,
+            isCameraTarget: true,
+            imageWidth,
+            imageHeight,
+            detectedAt: Date.now(),
+          }];
+        })
+      );
+    }
 
     return detections
       .sort((a, b) => b.score - a.score)

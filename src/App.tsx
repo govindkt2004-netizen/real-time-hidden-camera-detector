@@ -342,7 +342,7 @@ export default function App() {
               <span>Live camera inspection</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Load the optional camera model to flag visible camera-like objects. Matches are unconfirmed; the app cannot identify every hidden, inactive, or distant camera.
+              The camera-prompt model loads when scanning starts. Matches are unconfirmed; the app cannot identify every hidden, inactive, or distant camera.
             </p>
           </div>
 
@@ -437,7 +437,7 @@ export default function App() {
               <span>On-Device Object Detection</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              COCO-SSD observations run locally. Load the optional Grounding DINO model to flag visible camera-like objects; its matches are unconfirmed and it cannot detect every device.
+              Grounding DINO runs locally with camera-only text prompts. Matches are unconfirmed, and this general open-vocabulary model cannot detect every device.
             </p>
           </div>
 

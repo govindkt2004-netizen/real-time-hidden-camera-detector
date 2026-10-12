@@ -203,7 +203,7 @@ export const SettingsModal: React.FC<Props> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  The alarm only follows camera-like matches from the optional visible-camera model. Phone, laptop, reflection, and aperture observations do not trigger it.
+                  The alarm only follows camera-prompt matches from Grounding DINO. Manual reflection and aperture observations do not trigger it.
                 </p>
               </div>
 
@@ -257,11 +257,11 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
               {settings.sensitivity === 'balanced' &&
-                'Balanced threshold (48%) for COCO phone/laptop labels; the optional visible-camera model also uses this setting to adjust its open-vocabulary score threshold.'}
+                'Balanced open-vocabulary score threshold (75%). The score is not a calibrated probability or confirmation.'}
               {settings.sensitivity === 'high' &&
-                'Lower thresholds may increase camera-like or phone/laptop candidates and false positives. Model scores are not calibrated probabilities.'}
+                'Lower open-vocabulary score threshold (65%) may find more candidates but can increase false positives. Scores are not calibrated probabilities.'}
               {settings.sensitivity === 'strict' &&
-                'Higher threshold (62%) returns fewer phone or laptop candidates. A model confidence score is not proof that a device is recording.'}
+                'Higher open-vocabulary score threshold (85%) returns fewer candidates. A model score is not proof that a device is recording.'}
             </p>
           </div>
 
@@ -273,7 +273,7 @@ export const SettingsModal: React.FC<Props> = ({
             <div className="grid grid-cols-2 gap-2">
               {([
                 { value: 'fast', label: 'Fast', detail: 'One full-frame pass' },
-                { value: 'detail', label: 'Detail', detail: 'Full frame + 4 tiles' },
+                { value: 'detail', label: 'Detail', detail: 'Full frame + 4 camera crops' },
               ] as const).map((mode) => (
                 <button
                   key={mode.value}
@@ -290,7 +290,7 @@ export const SettingsModal: React.FC<Props> = ({
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
-              Fast mode prioritizes responsiveness. Detail mode may improve visibility of small objects, but takes longer and cannot recover detail missing from the camera image.
+              Fast mode prioritizes responsiveness. Detail mode runs the camera detector over four overlapping high-resolution crops as well as the full frame; it takes longer and cannot recover detail missing from the camera image.
             </p>
           </div>
 
