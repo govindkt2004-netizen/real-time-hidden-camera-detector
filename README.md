@@ -1,23 +1,29 @@
 # Real-Time Camera Inspection
 
-A browser-based live camera inspection dashboard. It runs TensorFlow.js COCO-SSD locally against successive camera frames, highlights model-supported object candidates, and keeps scan history in browser storage.
+A browser-based live camera inspection dashboard. It runs TensorFlow.js COCO-SSD locally against successive camera frames and can optionally load an open-vocabulary ONNX detector to flag visible camera-like objects. Scan history is kept in browser storage.
 
 ## What it can identify
 
-The bundled `@tensorflow-models/coco-ssd` `lite_mobilenet_v2` model was trained on the COCO object categories. It reports visible **people** and raises alerts for its **cell phone** and **laptop** categories. Person detections are per-frame estimates, not persistent identities. Camera and TensorFlow.js code are loaded on demand, and the optional PDF/JSON report generator is loaded only when requested. A laptop prediction identifies the laptop body; it does not resolve or verify the presence, visibility, or state of its built-in camera. COCO-SSD has no dedicated camera, webcam, CCTV, pinhole, or micro-camera class, so it cannot reliably detect all cameras. These device predictions are inspection candidates, not confirmation of a hidden camera or that recording is taking place.
+The bundled `@tensorflow-models/coco-ssd` `lite_mobilenet_v2` model was trained on COCO categories. Person detections are shown as neutral informational outlines only; they cannot trigger a red camera box, camera warning, history alert, or alarm. If a camera-model candidate overlaps most of a detected person's box, that candidate is suppressed to reduce false alarms on people. This conservative filter can also hide a real camera being held or worn by a person. Its **cell phone** and **laptop** outputs are neutral observations and do not trigger camera warnings or alarms.
 
-Fast scan mode runs one full-frame model pass. Detail mode adds four overlapping image tiles to give small visible objects more input pixels, at the cost of slower updates. Camera image quality requests either 1280×720 or 1920×1080, subject to the camera and browser. Tiling and optical/digital zoom cannot recover detail the sensor did not resolve. The sensitivity setting changes the COCO-SSD score threshold; it does not add classes or train the model for small cameras. The maximum inference-rate control is 5, 10, or 15 frames per second; actual FPS is limited by the selected mode and device.
+Use **Load Camera Model** to download the optional `onnx-community/grounding-dino-tiny-ONNX` open-vocabulary detector (about 230 MB, first use). It runs in the browser using ONNX Runtime through Transformers.js and checks visible frames with a camera-device-and-lens prompt. The detector uses higher score thresholds and ignores boxes smaller than 16 pixels per edge or 0.05% of the frame to avoid warning about objects too small to identify reliably. Only this model's unconfirmed camera-like matches can produce a red **camera-like object — verify** box or, if enabled, the alert sound. This is a general open-set detector, not a camera-specialist model or a validated hidden-camera detector; CCTV, webcam, miniature, and other subtypes have not been separately validated. Matches are unconfirmed model outputs; lookalike objects may trigger them and real cameras may be missed. Its score is not a calibrated probability. Model weights are downloaded from Hugging Face; camera frames are processed in-browser and are not uploaded by this app. The model is not redistributed by this project.
+
+**Manual Sweep** is a separate visible-light image heuristic. It marks a limited number of bright, high-contrast reflections and dark aperture-like patterns as neutral observations, not camera detections or danger alerts. Harmless lamps, screws, shiny surfaces, and image noise can produce the same patterns. The visual signal score measures the heuristic signal only; it is not the probability that a camera is present.
+
+The browser camera API does not expose a standard way to determine whether a built-in camera is infrared-sensitive or to read raw IR measurements. This app therefore does **not** perform IR detection. IR inspection requires separate IR-sensitive hardware and compatible access software; an IR light is not proof of a camera or recording. Camera and TensorFlow.js code are loaded on demand, and the optional PDF/JSON report generator is loaded only when requested. A laptop prediction identifies the laptop body; it does not verify the presence, visibility, or state of its built-in camera.
+
+Fast scan mode runs one full-frame COCO-SSD pass; Detail mode adds four overlapping image tiles. The optional camera model checks the full frame at a lower rate because open-vocabulary inference is slower. Camera image quality requests either 1280×720 or 1920×1080, subject to the camera and browser. Tiling and optical/digital zoom cannot recover detail the sensor did not resolve. Sensitivity changes score thresholds; it does not train the model or guarantee small-camera detection. Actual FPS depends on the device, browser, and loaded models.
 
 The 10 m, 15 m, and 20 m values are manually selected test conditions, not measured distance or guaranteed operating ranges. Results at those distances depend on target size, resolution, optical zoom, focus, lighting, and motion. Candidates rendered smaller than 24 pixels are flagged as too small for reliable identification. Auto-center magnification is digital display zoom; it does not add image detail or provide optical zoom. No candidates means only that no supported object was identified in the analyzed frame.
 
-This website cannot reliably identify devices hidden behind opaque materials, powered-off devices, tiny lenses, or objects outside the model's trained categories. Laptop and phone detections do not mean the camera lens itself was detected. Use appropriate optical zoom or specialized inspection equipment when needed. Treat every result as an unconfirmed lead.
+This website cannot identify devices outside the frame, behind opaque materials, or too small to resolve. An inactive device may have no visible or IR signal; software cannot establish that a hidden device is absent. Laptop and phone detections do not mean their camera lenses were detected. No model in this app guarantees detection of all camera types or 10–20 m detection. Use suitable optical zoom or specialized inspection hardware where needed. Treat every result as an unconfirmed lead.
 
-The application does not automatically detect lens reflections or infrared emissions. Phone cameras vary in infrared sensitivity, and visible reflections or bright points are not evidence of a camera. The common fingernail-gap mirror test is not reliable for identifying two-way glass.
+Manual Sweep checks visible reflection and aperture-like patterns only when enabled. Reflections and bright points are not evidence of a camera. The app does not analyze infrared emissions. Phone cameras vary in infrared sensitivity, and the common fingernail-gap mirror test is not reliable for identifying two-way glass.
 
 ## Privacy and permissions
 
 - Camera frames are processed in the browser and are not uploaded by this application.
-- COCO-SSD model files are fetched by TensorFlow.js from its configured model source when the app initializes.
+- COCO-SSD model files are fetched by TensorFlow.js from its configured model source when the app initializes. Grounding DINO weights are downloaded from Hugging Face only after you select **Load Camera Model**.
 - Scan events and preferences are stored in this browser's local storage. A still image is saved only when you request a snapshot.
 - Camera access requires permission and a secure context: HTTPS in deployment, or `localhost` during development.
 - Alarm playback requires browser audio permission/user interaction. Use the alarm test button after enabling audio.
@@ -38,7 +44,7 @@ The application does not automatically detect lens reflections or infrared emiss
    ```
 
 4. Open the local URL printed by Vite (by default `http://localhost:3000`) and allow camera access.
-5. Use **Settings** to change the confidence threshold, inference rate, or alarm. Start/stop and pause/resume scanning from the scanner controls; use the camera-switch control on devices with multiple cameras.
+5. Start scanning, then use **Load Camera Model** to enable best-effort visible camera-like object prompts. This downloads about 230 MB of model files the first time. Use **Manual Sweep** only for separate neutral reflection/aperture cues. Settings adjust sensitivity, inference rate, and the alarm.
 
 ### Mobile phones
 
@@ -74,7 +80,10 @@ src/
     audio.ts
     biometric.ts
     detector.ts
+    glint.ts
     reportGenerator.ts
+    visibleApertureDetector.ts
+    visibleCameraDetector.ts
   types/
     index.ts
 index.html

@@ -1,8 +1,7 @@
 /**
- * Optical Retroreflection & Lens Glint Analyzer
- * Simulates physical TSCM (Technical Surveillance Counter-Measures) optical sweepers.
- * Detects pinpoint specular reflections produced when camera flash or ambient lighting
- * bounces off curved glass camera lenses and anti-reflective dielectric coatings.
+ * Finds small, bright, high-contrast points in a visible-light camera frame.
+ * These are optical cues only: ordinary lights and reflective objects can produce
+ * the same pattern, so a result cannot identify or confirm a camera.
  */
 
 export interface LensGlint {
@@ -23,7 +22,7 @@ export class GlintDetector {
   }
 
   /**
-   * Analyze the video frame for intense pinpoint specular retroreflections
+   * Analyze the video frame for bright, high-contrast points.
    */
   public analyzeFrame(
     video: HTMLVideoElement,
@@ -82,6 +81,8 @@ export class GlintDetector {
         }
       }
     }
+
+    candidates.sort((a, b) => b.val - a.val);
 
     // Cluster close peaks
     const glints: LensGlint[] = [];

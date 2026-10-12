@@ -26,7 +26,7 @@ export const DisclaimerBanner: React.FC = () => {
             <strong className="text-amber-200 ml-1">
               It does not and cannot claim to detect every concealed camera.
             </strong>{' '}
-            The bundled COCO-SSD model can identify its trained “person”, “cell phone”, and “laptop” object classes, but is not trained to recognize camera lenses, dedicated cameras, pinhole lenses, or camera modules. Person boxes and counts are estimates, not unique-person tracking. A laptop detection identifies the laptop body; it does not verify that a built-in camera is present, visible, or active. Detected devices are not proof of recording. Objects hidden behind opaque materials, powered-off devices, and details below the image resolution cannot be identified. Low light, distance, camera optics, and motion further reduce reliability.
+            The bundled COCO-SSD model recognizes “cell phone” and “laptop” classes only; person detections are excluded. The optional Grounding DINO Tiny open-vocabulary model can flag visible objects matching camera-related text prompts, but it is not camera-specialist or validated for hidden-camera detection. False positives and missed cameras are possible; a model score is not a calibrated probability or confirmation. Manual sweep reflections and aperture-like patterns are not camera evidence. A laptop detection identifies its body, not whether a camera is present or active. Hidden cameras outside the frame or behind opaque material cannot be detected. An inactive camera may produce no visible cue, and range depends on target size, lighting, focus, and optics.
           </p>
 
           {expanded && (
@@ -37,7 +37,7 @@ export const DisclaimerBanner: React.FC = () => {
                   <span>1. Manual Visual Sweep</span>
                 </div>
                 <p className="text-slate-300">
-                  You can inspect suspicious objects with a separate light at different angles. Reflections are common and do not identify a camera; this app does not automatically detect or classify lens reflections.
+                  Load the optional camera model to flag visible camera-like objects. Manual sweep only marks bright points and dark aperture-like patterns as neutral cues; ordinary lights, screws, and shiny surfaces can produce them.
                 </p>
               </div>
 
@@ -47,7 +47,7 @@ export const DisclaimerBanner: React.FC = () => {
                   <span>2. Infrared Limitations</span>
                 </div>
                 <p className="text-slate-300">
-                  Phone cameras vary and may filter infrared light. This app cannot detect infrared emissions. A suitable IR-sensitive camera or dedicated inspection tool is required; visible bright points alone are not proof of a camera.
+                  This browser app cannot determine whether its camera sensor is IR-sensitive or access raw infrared measurements. IR analysis is not enabled. It requires separate IR-sensitive hardware and compatible software; IR illumination, when present, indicates neither a camera nor recording by itself.
                 </p>
               </div>
 

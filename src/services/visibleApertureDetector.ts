@@ -1,43 +1,36 @@
 /**
- * Infrared (IR) & Micro-Aperture Pinhole Sensor Engine
- * Analyzes video stream for:
- * 1. Night-vision 850nm/940nm infrared spy camera LED emissions (magenta/violet high-intensity peaks in low light)
- * 2. Concealed micro-aperture pinhole optical cavities (circular deep-shadow cavities inside screws/housings)
- * Supports adjustable sensor gain (1x to 5x) for low-end mobile hardware.
+ * Visible-RGB dark-aperture heuristic only.
+ * It cannot measure infrared wavelengths or identify a camera.
  */
 
-export interface IRSensorTarget {
+export interface ApertureCue {
   x: number;
   y: number;
   radius: number;
-  type: 'IR_EMITTER' | 'PINHOLE_APERTURE';
-  confidence: number;
+  type: 'PINHOLE_APERTURE';
+  signalStrength: number;
   label: string;
 }
 
-export class IRPinholeSensor {
+export class VisibleApertureDetector {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D | null;
-  private gain: number = 2.0; // Sensor amplification
+  private cueSensitivity: number = 2.0;
 
   constructor() {
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
   }
 
-  public setSensorGain(gain: number) {
-    this.gain = Math.max(1.0, Math.min(5.0, gain));
+  public setCueSensitivity(sensitivity: number) {
+    this.cueSensitivity = Math.max(1.0, Math.min(5.0, sensitivity));
   }
 
-  public getSensorGain(): number {
-    return this.gain;
+  public getCueSensitivity(): number {
+    return this.cueSensitivity;
   }
 
-  public analyzeFrame(
-    video: HTMLVideoElement,
-    detectIR: boolean = true,
-    detectPinhole: boolean = true
-  ): IRSensorTarget[] {
+  public analyzeFrame(video: HTMLVideoElement): ApertureCue[] {
     if (!this.ctx || !video.videoWidth || !video.videoHeight) {
       return [];
     }
@@ -60,9 +53,7 @@ export class IRPinholeSensor {
     }
 
     const data = imgData.data;
-    const targets: IRSensorTarget[] = [];
-    const thresholdIR = Math.max(180, 230 - this.gain * 15);
-
+    const targets: ApertureCue[] = [];
     // Fast grid scan
     for (let y = 6; y < h - 6; y += 4) {
       for (let x = 6; x < w - 6; x += 4) {
@@ -71,32 +62,8 @@ export class IRPinholeSensor {
         const g = data[idx + 1];
         const b = data[idx + 2];
 
-        // 1. Detect Infrared (IR) Night-Vision LED Emissions
-        // IR light on CMOS sensors renders with high Red & Blue, lower Green, and extreme local brightness
-        if (detectIR) {
-          const isMagentaWhite = r > thresholdIR && b > thresholdIR && (r + b) > g * 2.2;
-          if (isMagentaWhite) {
-            // Check local isolation (IR LED is a concentrated pinpoint source)
-            const edgeIdx = ((y - 4) * w + (x - 4)) * 4;
-            const edgeLum = (data[edgeIdx] + data[edgeIdx + 1] + data[edgeIdx + 2]) / 3;
-            const centerLum = (r + g + b) / 3;
-
-            if (centerLum - edgeLum > 55 - this.gain * 6) {
-              const conf = Math.min(0.96, 0.65 + ((centerLum - edgeLum) / 180) * (this.gain / 2));
-              targets.push({
-                x: Math.round(x / scale),
-                y: Math.round(y / scale),
-                radius: 10,
-                type: 'IR_EMITTER',
-                confidence: conf,
-                label: 'IR NIGHT-VISION EMITTER',
-              });
-            }
-          }
-        }
-
-        // 2. Detect Concealed Pinhole Aperture (Micro dark cavity surrounded by rim)
-        if (detectPinhole && targets.length < 5) {
+        // Detect a dark spot with a brighter local rim. This pattern is not camera-specific.
+        if (targets.length < 8) {
           const centerLum = (r + g + b) / 3;
           if (centerLum < 45) {
             // Very dark pit
@@ -112,14 +79,15 @@ export class IRPinholeSensor {
             ) / 3;
 
             // Sharp dark center against bright/reflective rim indicates optical cavity
-            if (rimAvg - centerLum > 70 - this.gain * 8) {
+            const contrast = rimAvg - centerLum;
+            if (contrast > 70 - this.cueSensitivity * 8) {
               targets.push({
                 x: Math.round(x / scale),
                 y: Math.round(y / scale),
                 radius: 9,
                 type: 'PINHOLE_APERTURE',
-                confidence: Math.min(0.92, 0.58 + ((rimAvg - centerLum) / 200)),
-                label: 'CONCEALED PINHOLE APERTURE',
+                signalStrength: Math.min(1, contrast / 200),
+                label: 'DARK APERTURE-LIKE FEATURE — NOT IDENTIFIED',
               });
             }
           }
@@ -131,7 +99,7 @@ export class IRPinholeSensor {
     }
 
     // Cluster close detections
-    const clustered: IRSensorTarget[] = [];
+    const clustered: ApertureCue[] = [];
     for (const t of targets) {
       const exists = clustered.some((c) => {
         const dx = c.x - t.x;

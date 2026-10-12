@@ -4,6 +4,8 @@ export interface DetectionResult {
   bbox: [number, number, number, number];
   class: string;
   score: number;
+  evidence?: 'model' | 'visible-optical-cue' | 'camera-model';
+  scoreMeaning?: 'model-confidence' | 'visual-signal-strength' | 'open-vocabulary-model-score';
   threatLevel: 'DANGER' | 'INFO';
   label: string;
   isCameraTarget: boolean;
@@ -21,16 +23,20 @@ const SUPPORTED_CLASSES: Record<
   string,
   { label: string; threatLevel: DetectionResult['threatLevel']; isCameraTarget: boolean }
 > = {
-  person: { label: 'PERSON', threatLevel: 'INFO', isCameraTarget: false },
+  person: {
+    label: 'PERSON — INFORMATION ONLY, NOT A CAMERA',
+    threatLevel: 'INFO',
+    isCameraTarget: false,
+  },
   'cell phone': {
-    label: 'PHONE — CAMERA-CAPABLE DEVICE',
-    threatLevel: 'DANGER',
-    isCameraTarget: true,
+    label: 'CELL PHONE — NOT IDENTIFIED AS A CAMERA',
+    threatLevel: 'INFO',
+    isCameraTarget: false,
   },
   laptop: {
-    label: 'LAPTOP — CAMERA MAY BE PRESENT',
-    threatLevel: 'DANGER',
-    isCameraTarget: true,
+    label: 'LAPTOP — NOT IDENTIFIED AS A CAMERA',
+    threatLevel: 'INFO',
+    isCameraTarget: false,
   },
 };
 const TILE_SCALE = 0.6;
@@ -184,6 +190,8 @@ export class DetectorService {
             ] as [number, number, number, number],
             class: prediction.class,
             score: prediction.score,
+            evidence: 'model',
+            scoreMeaning: 'model-confidence',
             threatLevel: classification.threatLevel,
             label: classification.label,
             isCameraTarget: classification.isCameraTarget,

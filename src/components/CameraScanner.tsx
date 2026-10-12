@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Camera,
   CameraOff,
@@ -7,6 +7,7 @@ import {
   FlashlightOff,
   Volume2,
   VolumeX,
+  Download,
   Play,
   Square,
   PauseCircle,
@@ -33,6 +34,9 @@ import {
 } from 'lucide-react';
 import { detectorService } from '../services/detector';
 import type { DetectionResult } from '../services/detector';
+import { GlintDetector } from '../services/glint';
+import { VisibleApertureDetector } from '../services/visibleApertureDetector';
+import { visibleCameraDetector } from '../services/visibleCameraDetector';
 import { soundAlarm } from '../services/audio';
 import { AppSettings, ScanIncident, IgnoreMask } from '../types';
 import { FlashlightMode } from './QuickFlashlightBar';
@@ -59,6 +63,7 @@ interface Props {
     highestThreatLabel?: string;
     fps: number;
     ignoredThreatsCount?: number;
+    cameraModelReady: boolean;
   }) => void;
   onSaveIncident: (incident: ScanIncident) => void;
   flashlightMode: FlashlightMode;
@@ -97,6 +102,8 @@ export const CameraScanner: React.FC<Props> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const glintDetector = useMemo(() => new GlintDetector(), []);
+  const apertureDetector = useMemo(() => new VisibleApertureDetector(), []);
 
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -112,8 +119,14 @@ export const CameraScanner: React.FC<Props> = ({
   const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
 
   const lastDetectionsRef = useRef<DetectionResult[]>([]);
+  const cameraPredictionsRef = useRef<DetectionResult[]>([]);
+  const lastCameraInferenceTimeRef = useRef<number>(0);
   const [fps, setFps] = useState<number>(0);
   const [threatActive, setThreatActive] = useState<boolean>(false);
+  const [manualInspectionMode, setManualInspectionMode] = useState<boolean>(false);
+  const [cameraModelStatus, setCameraModelStatus] = useState<'not-loaded' | 'loading' | 'ready' | 'error'>('not-loaded');
+  const [cameraModelProgress, setCameraModelProgress] = useState<number>(0);
+  const [cameraModelError, setCameraModelError] = useState<string | null>(null);
 
   // Drawing state for ignore masks
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
@@ -272,6 +285,7 @@ export const CameraScanner: React.FC<Props> = ({
         setIsPaused(false);
         setThreatActive(false);
         lastDetectionsRef.current = [];
+        cameraPredictionsRef.current = [];
         onThreatDetected([]);
         soundAlarm.stopAlarm();
         setHasTorch(false);
@@ -359,6 +373,8 @@ export const CameraScanner: React.FC<Props> = ({
     onSetFlashlightMode('off');
     setThreatActive(false);
     lastDetectionsRef.current = [];
+    cameraPredictionsRef.current = [];
+    lastCameraInferenceTimeRef.current = 0;
     setFps(0);
     fpsRef.current = 0;
     frameCount.current = 0;
@@ -380,6 +396,26 @@ export const CameraScanner: React.FC<Props> = ({
     } finally {
       cameraStartInProgressRef.current = false;
       setIsCameraStarting(false);
+    }
+  };
+
+  const handleLoadCameraModel = async () => {
+    if (cameraModelStatus === 'loading' || cameraModelStatus === 'ready') return;
+    setCameraModelStatus('loading');
+    setCameraModelProgress(0);
+    setCameraModelError(null);
+    try {
+      await visibleCameraDetector.load((progress) => {
+        if ('progress' in progress && Number.isFinite(progress.progress)) {
+          setCameraModelProgress((current) => Math.max(current, progress.progress));
+        }
+      });
+      setCameraModelStatus('ready');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Camera model could not be loaded.';
+      console.error('Visible camera model loading failed:', error);
+      setCameraModelError(message);
+      setCameraModelStatus('error');
     }
   };
 
@@ -620,12 +656,99 @@ export const CameraScanner: React.FC<Props> = ({
 
           try {
             // Analyze the full frame and overlapping crops with the loaded object detector.
-            const predictions = await detectorService.detect(
+            const modelPredictions = await detectorService.detect(
               video,
               settings.sensitivity,
               settings.scanPerformance
             );
             if (!isRunning || streamRef.current !== activeStream) return;
+            if (
+              cameraModelStatus === 'ready' &&
+              visibleCameraDetector.isLoaded() &&
+              performance.now() - lastCameraInferenceTimeRef.current >= 1200
+            ) {
+              lastCameraInferenceTimeRef.current = performance.now();
+              try {
+                cameraPredictionsRef.current = await visibleCameraDetector.detect(
+                  video,
+                  settings.sensitivity
+                );
+              } catch (error) {
+                const message = error instanceof Error ? error.message : 'Camera model inference failed.';
+                console.error('Visible camera model inference failed:', error);
+                cameraPredictionsRef.current = [];
+                setCameraModelError(message);
+                setCameraModelStatus('error');
+              }
+              if (!isRunning || streamRef.current !== activeStream) return;
+            }
+            const opticalCues: DetectionResult[] = manualInspectionMode
+              ? [
+                  ...glintDetector
+                    .analyzeFrame(video, 240, 3, hasTorch && flashlightMode !== 'off')
+                    .map((cue): DetectionResult => ({
+                      bbox: [
+                        Math.max(0, cue.x - cue.radius),
+                        Math.max(0, cue.y - cue.radius),
+                        Math.min(cue.radius * 2, video.videoWidth - Math.max(0, cue.x - cue.radius)),
+                        Math.min(cue.radius * 2, video.videoHeight - Math.max(0, cue.y - cue.radius)),
+                      ],
+                      class: 'bright reflection',
+                      score: cue.intensity,
+                      evidence: 'visible-optical-cue',
+                      scoreMeaning: 'visual-signal-strength',
+                      threatLevel: 'INFO',
+                      label: 'BRIGHT REFLECTION — NOT IDENTIFIED AS A CAMERA',
+                      isCameraTarget: false,
+                      imageWidth: video.videoWidth,
+                      imageHeight: video.videoHeight,
+                      detectedAt: Date.now(),
+                    })),
+                  ...apertureDetector
+                    .analyzeFrame(video)
+                    .map((cue): DetectionResult => ({
+                      bbox: [
+                        Math.max(0, cue.x - cue.radius),
+                        Math.max(0, cue.y - cue.radius),
+                        Math.min(cue.radius * 2, video.videoWidth - Math.max(0, cue.x - cue.radius)),
+                        Math.min(cue.radius * 2, video.videoHeight - Math.max(0, cue.y - cue.radius)),
+                      ],
+                      class: 'dark aperture-like feature',
+                      score: cue.signalStrength,
+                      evidence: 'visible-optical-cue',
+                      scoreMeaning: 'visual-signal-strength',
+                      threatLevel: 'INFO',
+                      label: 'DARK APERTURE-LIKE FEATURE — NOT IDENTIFIED AS A CAMERA',
+                      isCameraTarget: false,
+                      imageWidth: video.videoWidth,
+                      imageHeight: video.videoHeight,
+                      detectedAt: Date.now(),
+                    })),
+                ]
+              : [];
+            const personDetections = modelPredictions.filter(
+              (prediction) => prediction.class.toLowerCase() === 'person'
+            );
+            const visibleCameraCandidates = cameraPredictionsRef.current.filter((candidate) =>
+              !personDetections.some((person) => {
+                const [cameraX, cameraY, cameraWidth, cameraHeight] = candidate.bbox;
+                const [personX, personY, personWidth, personHeight] = person.bbox;
+                const intersectionWidth = Math.max(
+                  0,
+                  Math.min(cameraX + cameraWidth, personX + personWidth) - Math.max(cameraX, personX)
+                );
+                const intersectionHeight = Math.max(
+                  0,
+                  Math.min(cameraY + cameraHeight, personY + personHeight) - Math.max(cameraY, personY)
+                );
+                const cameraArea = cameraWidth * cameraHeight;
+                return (
+                  cameraArea > 0 &&
+                  (intersectionWidth * intersectionHeight) / cameraArea >= 0.5
+                );
+              })
+            );
+            const predictions = [...modelPredictions, ...visibleCameraCandidates, ...opticalCues];
 
             frameCount.current++;
             const now = performance.now();
@@ -646,9 +769,17 @@ export const CameraScanner: React.FC<Props> = ({
 
             let skippedByMaskCount = 0;
 
-            // Filter supported camera-capable device candidates and skip masked regions.
+            // Only explicitly classified camera targets are eligible for an alert.
             const cameraThreats = predictions.filter((p) => {
-              if (!p.isCameraTarget || p.threatLevel !== 'DANGER') return false;
+              if (
+                !p.isCameraTarget ||
+                p.evidence !== 'camera-model' ||
+                p.threatLevel !== 'DANGER'
+              ) {
+                return false;
+              }
+              p.isIgnored = undefined;
+              p.ignoredReason = undefined;
 
               // Convert detection video bounding box to container percentage coordinates
               const [bx, by, bw, bh] = p.bbox;
@@ -810,6 +941,7 @@ export const CameraScanner: React.FC<Props> = ({
                 highestThreatLabel: (centerMostIndex >= 0 ? cameraThreats[centerMostIndex] : cameraThreats[0])?.label,
                 fps: fpsRef.current,
                 ignoredThreatsCount: skippedByMaskCount,
+                cameraModelReady: cameraModelStatus === 'ready',
               });
               lastPublishedThreat.current = hasCamera;
               lastPublishedThreatCount.current = cameraThreats.length;
@@ -831,9 +963,11 @@ export const CameraScanner: React.FC<Props> = ({
                   threatLabel: top.label,
                   confidence: top.score,
                   priority: 'MEDIUM',
-                  notes: cameraThreats.length > 1
-                    ? `COCO-SSD classified ${cameraThreats.length} camera-capable device candidate(s). Center candidate: ${top.label}, score ${(top.score * 100).toFixed(1)}%. Camera status is unconfirmed.`
-                      : `COCO-SSD ${top.class} candidate, score ${(top.score * 100).toFixed(1)}%. This does not confirm a hidden camera or recording.`,
+                  notes: top.evidence === 'visible-optical-cue'
+                    ? `Manual visual sweep found a ${top.class} cue (signal strength ${(top.score * 100).toFixed(1)}%). Reflections and apertures are common in harmless objects; this is not a camera-probability score or confirmation.`
+                    : top.evidence === 'camera-model'
+                    ? `Grounding DINO matched the visible image to the "${top.class}" prompt with score ${(top.score * 100).toFixed(1)}%. This is an unconfirmed open-vocabulary match, not proof of a camera or recording.`
+                    : `COCO-SSD ${top.class} observation, model score ${(top.score * 100).toFixed(1)}%. This does not confirm a camera or recording.`,
                 });
               }
             } else {
@@ -841,7 +975,7 @@ export const CameraScanner: React.FC<Props> = ({
             }
 
             // Draw Overlays: Highlights center-most candidate when multiple are identified
-            drawOverlays(ctx, canvas.width, canvas.height, cameraThreats, predictions, centerMostIndex, lockData);
+            drawOverlays(ctx, cameraThreats, predictions);
 
           } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown inference error';
@@ -855,6 +989,7 @@ export const CameraScanner: React.FC<Props> = ({
             if (videoRef.current) videoRef.current.srcObject = null;
             setThreatActive(false);
             lastDetectionsRef.current = [];
+            cameraPredictionsRef.current = [];
             onThreatDetected([]);
             onStatusChange({
               isScanning: false,
@@ -862,6 +997,7 @@ export const CameraScanner: React.FC<Props> = ({
               threatDetected: false,
               threatCount: 0,
               fps: 0,
+              cameraModelReady: cameraModelStatus === 'ready',
             });
             setFps(0);
             fpsRef.current = 0;
@@ -883,8 +1019,10 @@ export const CameraScanner: React.FC<Props> = ({
             threatDetected: false,
             threatCount: 0,
             fps: 0,
+            cameraModelReady: cameraModelStatus === 'ready',
           });
           onThreatDetected([]);
+          setCenterLock(null);
           setFps(0);
           fpsRef.current = 0;
           frameCount.current = 0;
@@ -934,192 +1072,64 @@ export const CameraScanner: React.FC<Props> = ({
     settings.sensitivity,
     settings.scanPerformance,
     settings.fpsLimit,
+    cameraModelStatus,
     isPaused,
     flashlightMode,
+    hasTorch,
+    manualInspectionMode,
     screenIlluminator,
     containerRef,
   ]);
 
-  // Render people as informational detections and camera-capable devices as red candidates.
+  // Render non-camera model observations and visual cues without danger styling.
   const drawOverlays = (
     ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
     unmaskedThreats: DetectionResult[],
-    allPredictions: DetectionResult[],
-    centerMostIdx: number = -1,
-    lockData: CenterLockInfo | null = null
+    allPredictions: DetectionResult[]
   ) => {
-    const isMultiCandidate = unmaskedThreats.length > 1;
-    allPredictions.forEach((d) => {
-      if (d.class.toLowerCase() !== 'person') return;
-      const [x, y, w, h] = d.bbox;
-      ctx.save();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.shadowColor = '#38bdf8';
-      ctx.shadowBlur = 6;
-      ctx.strokeRect(x, y, w, h);
-      const tag = `PERSON ${(d.score * 100).toFixed(0)}%`;
-      ctx.font = 'bold 11px JetBrains Mono, monospace';
-      const tagWidth = ctx.measureText(tag).width + 12;
-      const tagY = Math.max(0, y - 20);
-      ctx.fillStyle = '#075985';
-      ctx.fillRect(x, tagY, tagWidth, 20);
-      ctx.fillStyle = '#e0f2fe';
-      ctx.fillText(tag, x + 6, tagY + 14);
-      ctx.restore();
+    unmaskedThreats.forEach((d) => {
+      if (
+        d.isCameraTarget &&
+        d.evidence === 'camera-model' &&
+        d.threatLevel === 'DANGER'
+      ) {
+        const [x, y, w, h] = d.bbox;
+        const tag = `CAMERA-LIKE OBJECT — VERIFY: ${d.label}`;
+        ctx.save();
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 12;
+        ctx.strokeRect(x, y, w, h);
+        ctx.shadowBlur = 0;
+        ctx.font = 'bold 11px JetBrains Mono, monospace';
+        const tagWidth = ctx.measureText(tag).width + 12;
+        const tagY = Math.max(0, y - 22);
+        ctx.fillStyle = 'rgba(127, 29, 29, 0.95)';
+        ctx.fillRect(x, tagY, tagWidth, 20);
+        ctx.fillStyle = '#fecaca';
+        ctx.fillText(tag, x + 6, tagY + 14);
+        ctx.restore();
+      }
     });
 
-    // Draw supported camera-capable device candidates as red danger boxes.
-    unmaskedThreats.forEach((d, idx) => {
-      if (d.isCameraTarget && d.threatLevel === 'DANGER') {
+    allPredictions.forEach((d) => {
+      if (!d.isIgnored && !d.isCameraTarget) {
         const [x, y, w, h] = d.bbox;
-        const isCenterMost = isMultiCandidate && idx === centerMostIdx;
-
         ctx.save();
-
-        if (isMultiCandidate && !isCenterMost) {
-          // Secondary candidate dashed styling
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 2.5;
-          ctx.setLineDash([6, 4]);
-          ctx.shadowColor = '#ef4444';
-          ctx.shadowBlur = 10;
-          ctx.strokeRect(x, y, w, h);
-          ctx.setLineDash([]);
-        } else {
-          // Single candidate standard danger box
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = isCenterMost ? 4 : 3.5;
-          ctx.shadowColor = '#ef4444';
-          ctx.shadowBlur = isCenterMost ? 22 : 16;
-          ctx.strokeRect(x, y, w, h);
-        }
-
-        // Reticle Corner Brackets & Optical Crosshairs
-        const cornerSize = isCenterMost ? Math.min(32, w / 3, h / 3) : Math.min(24, w / 4, h / 4);
-        ctx.lineWidth = isCenterMost ? 6 : isMultiCandidate ? 3.5 : 5.5;
-        ctx.strokeStyle = '#ef4444';
-        ctx.shadowColor = '#ef4444';
-
-        // Top-left
-        ctx.beginPath();
-        ctx.moveTo(x, y + cornerSize);
-        ctx.lineTo(x, y);
-        ctx.lineTo(x + cornerSize, y);
-        ctx.stroke();
-
-        // Top-right
-        ctx.beginPath();
-        ctx.moveTo(x + w - cornerSize, y);
-        ctx.lineTo(x + w, y);
-        ctx.lineTo(x + w, y + cornerSize);
-        ctx.stroke();
-
-        // Bottom-left
-        ctx.beginPath();
-        ctx.moveTo(x, y + h - cornerSize);
-        ctx.lineTo(x, y + h);
-        ctx.lineTo(x + cornerSize, y + h);
-        ctx.stroke();
-
-        // Bottom-right
-        ctx.beginPath();
-        ctx.moveTo(x + w - cornerSize, y + h);
-        ctx.lineTo(x + w, y + h);
-        ctx.lineTo(x + w, y + h - cornerSize);
-        ctx.stroke();
-
-        // Center Optical Crosshairs (+) for Center-Most candidate
-        if (isCenterMost) {
-          const cx = x + w / 2;
-          const cy = y + h / 2;
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#38bdf8';
-          ctx.shadowBlur = 10;
-          ctx.beginPath();
-          ctx.moveTo(cx - 22, cy);
-          ctx.lineTo(cx - 7, cy);
-          ctx.moveTo(cx + 7, cy);
-          ctx.lineTo(cx + 22, cy);
-          ctx.moveTo(cx, cy - 22);
-          ctx.lineTo(cx, cy - 7);
-          ctx.moveTo(cx, cy + 7);
-          ctx.lineTo(cx, cy + 22);
-          ctx.stroke();
-
-          // Concentric Reticle Lock Ring
-          const radius = Math.min(24, Math.min(w, h) * 0.28);
-          ctx.beginPath();
-          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 1.8;
-          ctx.setLineDash([4, 4]);
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          // Center Bullseye Dot
-          ctx.beginPath();
-          ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-          ctx.fillStyle = '#ef4444';
-          ctx.fill();
-        }
-
-        // Tactical HUD Tag above object
-        if (isCenterMost) {
-          const mainTag = `🎯 PRIORITY // CENTER LOCK: ${d.label} ${(d.score * 100).toFixed(0)}%`;
-          const subTag = `ΔCENTER: ${lockData?.distPercent.toFixed(1)}% · ${
-            lockData?.isAutoZoomActive ? `DIGITAL ZOOM ${zoomLevelRef.current}x` : 'FOCAL TARGET'
-          }`;
-
-          ctx.font = 'bold 12px JetBrains Mono, monospace';
-          const tm1 = ctx.measureText(mainTag);
-          ctx.font = '10px JetBrains Mono, monospace';
-          const tm2 = ctx.measureText(subTag);
-          const tagWidth = Math.max(tm1.width, tm2.width) + 20;
-          const tagHeight = 36;
-          const tagY = Math.max(0, y - tagHeight - 6);
-
-          ctx.fillStyle = '#b45309';
-          ctx.fillRect(x, tagY, tagWidth, tagHeight);
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(x, tagY, tagWidth, tagHeight);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 11px JetBrains Mono, monospace';
-          ctx.fillText(mainTag, x + 8, tagY + 15);
-
-          ctx.fillStyle = '#fef08a';
-          ctx.font = '9px JetBrains Mono, monospace';
-          ctx.fillText(subTag, x + 8, tagY + 29);
-        } else if (isMultiCandidate) {
-          const tagText = `⚠️ SECONDARY #${idx + 1}: ${d.label} ${(d.score * 100).toFixed(0)}%`;
-          ctx.font = 'bold 11px JetBrains Mono, monospace';
-          const textMetrics = ctx.measureText(tagText);
-          const tagHeight = 22;
-          const tagWidth = textMetrics.width + 16;
-          const tagY = Math.max(0, y - tagHeight - 4);
-
-          ctx.fillStyle = '#7f1d1d';
-          ctx.fillRect(x, tagY, tagWidth, tagHeight);
-          ctx.fillStyle = '#fca5a5';
-          ctx.fillText(tagText, x + 8, tagY + 15);
-        } else {
-          const tagText = `⚠️ DANGER: ${d.label} ${(d.score * 100).toFixed(0)}%`;
-          ctx.font = 'bold 12px JetBrains Mono, monospace';
-          const textMetrics = ctx.measureText(tagText);
-          const tagHeight = 24;
-          const tagWidth = textMetrics.width + 18;
-          const tagY = Math.max(0, y - tagHeight - 5);
-
-          ctx.fillStyle = '#b91c1c';
-          ctx.fillRect(x, tagY, tagWidth, tagHeight);
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(tagText, x + 9, tagY + 16);
-        }
-
+        ctx.strokeStyle = d.evidence === 'visible-optical-cue' ? '#f59e0b' : '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        const tag = `OBSERVATION · NOT A CAMERA: ${d.label}`;
+        ctx.font = 'bold 11px JetBrains Mono, monospace';
+        const tagWidth = ctx.measureText(tag).width + 12;
+        const tagY = Math.max(0, y - 22);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.fillRect(x, tagY, tagWidth, 20);
+        ctx.fillStyle = d.evidence === 'visible-optical-cue' ? '#fcd34d' : '#7dd3fc';
+        ctx.fillText(tag, x + 6, tagY + 14);
         ctx.restore();
       }
     });
@@ -1205,7 +1215,7 @@ export const CameraScanner: React.FC<Props> = ({
         />
       )}
 
-      {/* Red screen flash only when an actual unmasked camera is detected */}
+      {/* Red screen flash marks an unconfirmed object or optical cue, not a confirmed camera. */}
       {threatActive && (
         <div className="absolute inset-0 border-4 border-red-600/90 pointer-events-none z-20 animate-pulse bg-red-950/20" />
       )}
@@ -1303,8 +1313,7 @@ export const CameraScanner: React.FC<Props> = ({
           {threatActive ? (
             <div className="px-2 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-red-600 text-white font-mono text-[10px] sm:text-xs font-bold tracking-wider flex items-center gap-1.5 shadow-lg shadow-red-900/60 animate-pulse">
               <AlertTriangle className="w-4 h-4" />
-              <span className="sm:hidden">CAMERA-LIKE CANDIDATE</span>
-              <span className="hidden sm:inline">DANGER: POTENTIAL CAMERA-LIKE OBJECT</span>
+              <span>CAMERA-LIKE OBJECT DETECTED — VERIFY</span>
             </div>
           ) : isScanning && !isPaused ? (
             <div className="px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-xs font-semibold flex items-center gap-1.5">
@@ -1784,6 +1793,46 @@ export const CameraScanner: React.FC<Props> = ({
               {flashlightMode === 'off' ? 'LIGHT: OFF' : flashlightMode === 'steady' ? 'STEADY' : 'STROBE'}
             </span>
           </button>
+
+          <button
+            type="button"
+            aria-pressed={manualInspectionMode}
+            onClick={() => setManualInspectionMode((enabled) => !enabled)}
+            className={`min-h-[44px] px-2.5 sm:px-3.5 py-2 rounded-xl border backdrop-blur-md font-mono text-[10px] sm:text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all cursor-pointer ${
+              manualInspectionMode
+                ? 'bg-amber-500 text-black border-amber-300 shadow-lg shadow-amber-500/30'
+                : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:bg-slate-800'
+            }`}
+            title="Manual sweep checks visible frames for bright reflections and aperture-like spots. These cues are not camera identification."
+          >
+            <Eye className="w-4 h-4" />
+            <span>MANUAL SWEEP{manualInspectionMode ? ' ON' : ''}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleLoadCameraModel()}
+            disabled={cameraModelStatus === 'loading' || cameraModelStatus === 'ready'}
+            className={`min-h-[44px] px-2.5 sm:px-3.5 py-2 rounded-xl border font-mono text-[10px] sm:text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all ${
+              cameraModelStatus === 'ready'
+                ? 'bg-emerald-700/90 text-white border-emerald-400/70 cursor-default'
+                : cameraModelStatus === 'loading'
+                ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
+                : 'bg-sky-950/90 text-sky-200 border-sky-500/70 hover:bg-sky-900 cursor-pointer'
+            }`}
+            title="Downloads about 230 MB of open-vocabulary model weights for best-effort detection of visible camera-like objects. It cannot identify every hidden camera."
+          >
+            <Download className="w-4 h-4" />
+            <span>
+              {cameraModelStatus === 'ready'
+                ? 'CAMERA MODEL ON'
+                : cameraModelStatus === 'loading'
+                ? `LOADING ${Math.round(cameraModelProgress)}%`
+                : cameraModelStatus === 'error'
+                ? 'RETRY CAMERA MODEL'
+                : 'LOAD CAMERA MODEL'}
+            </span>
+          </button>
         </div>
 
         {/* Primary START / STOP SCAN Toggle Button */}
@@ -1828,6 +1877,8 @@ export const CameraScanner: React.FC<Props> = ({
               if (nextPaused) {
                 setThreatActive(false);
                 lastDetectionsRef.current = [];
+                cameraPredictionsRef.current = [];
+                lastCameraInferenceTimeRef.current = 0;
                 setFps(0);
                 fpsRef.current = 0;
                 frameCount.current = 0;
@@ -1843,6 +1894,11 @@ export const CameraScanner: React.FC<Props> = ({
             </button>
           )}
         </div>
+        {cameraModelError && (
+          <div role="alert" className="absolute bottom-16 left-3 z-40 max-w-[min(30rem,90%)] rounded-lg border border-red-500/60 bg-red-950/95 px-3 py-2 text-xs text-red-200 shadow-xl">
+            Camera model unavailable: {cameraModelError}
+          </div>
+        )}
 
         <div className="hidden sm:flex pointer-events-auto items-center gap-2">
           {/* Draw Ignore Mask quick access in bottom bar */}

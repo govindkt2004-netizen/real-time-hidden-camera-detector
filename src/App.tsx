@@ -199,6 +199,7 @@ export default function App() {
     highestThreatLabel?: string;
     fps: number;
     ignoredThreatsCount?: number;
+    cameraModelReady: boolean;
   }>({
     isScanning: false,
     isPaused: false,
@@ -207,6 +208,7 @@ export default function App() {
     highestThreatLabel: undefined,
     fps: 0,
     ignoredThreatsCount: 0,
+    cameraModelReady: false,
   });
 
   const [activeDetections, setActiveDetections] = useState<DetectionResult[]>([]);
@@ -340,7 +342,7 @@ export default function App() {
               <span>Live camera inspection</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              On-device detection counts visible people and flags phones or laptops that may contain cameras. Device candidates are not confirmed cameras.
+              Load the optional camera model to flag visible camera-like objects. Matches are unconfirmed; the app cannot identify every hidden, inactive, or distant camera.
             </p>
           </div>
 
@@ -351,6 +353,7 @@ export default function App() {
               threatDetected={scanStatus.threatDetected}
               threatCount={scanStatus.threatCount}
               highestThreatLabel={scanStatus.highestThreatLabel}
+              cameraModelReady={scanStatus.cameraModelReady}
             />
           </div>
         </div>
@@ -412,7 +415,7 @@ export default function App() {
         <section>
           <TelemetryPanel
             isScanning={scanStatus.isScanning}
-            threatDetected={scanStatus.threatDetected}
+            cameraModelReady={scanStatus.cameraModelReady}
             detections={activeDetections}
             fps={scanStatus.fps}
             sensitivity={settings.sensitivity}
@@ -434,7 +437,7 @@ export default function App() {
               <span>On-Device Object Detection</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              TensorFlow.js COCO-SSD inference runs in your browser. It detects people, phones, and laptops, but has no class for hidden, pinhole, or miniature cameras.
+              COCO-SSD observations run locally. Load the optional Grounding DINO model to flag visible camera-like objects; its matches are unconfirmed and it cannot detect every device.
             </p>
           </div>
 

@@ -203,7 +203,7 @@ export const SettingsModal: React.FC<Props> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  Play an alarm when the model identifies a phone or laptop candidate. This is not confirmation of a camera.
+                  The alarm only follows camera-like matches from the optional visible-camera model. Phone, laptop, reflection, and aperture observations do not trigger it.
                 </p>
               </div>
 
@@ -257,9 +257,9 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
               {settings.sensitivity === 'balanced' &&
-                'Balanced threshold (48%). The model can label phones and laptops; it is not trained to recognize hidden-camera hardware.'}
+                'Balanced threshold (48%) for COCO phone/laptop labels; the optional visible-camera model also uses this setting to adjust its open-vocabulary score threshold.'}
               {settings.sensitivity === 'high' &&
-                'Lower threshold (38%) may produce more phone or laptop candidates and false positives. It does not add new object classes.'}
+                'Lower thresholds may increase camera-like or phone/laptop candidates and false positives. Model scores are not calibrated probabilities.'}
               {settings.sensitivity === 'strict' &&
                 'Higher threshold (62%) returns fewer phone or laptop candidates. A model confidence score is not proof that a device is recording.'}
             </p>

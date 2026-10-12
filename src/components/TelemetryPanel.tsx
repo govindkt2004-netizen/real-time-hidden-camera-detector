@@ -1,10 +1,10 @@
 import React from 'react';
 import { DetectionResult } from '../services/detector';
-import { ShieldAlert, Crosshair, Activity, Camera, ShieldOff, Focus, Target } from 'lucide-react';
+import { Crosshair, Activity, Camera, ShieldOff, Focus, Target } from 'lucide-react';
 
 interface Props {
   isScanning: boolean;
-  threatDetected: boolean;
+  cameraModelReady: boolean;
   detections: DetectionResult[];
   fps: number;
   sensitivity: string;
@@ -14,34 +14,17 @@ interface Props {
 
 export const TelemetryPanel: React.FC<Props> = ({
   isScanning,
-  threatDetected,
+  cameraModelReady,
   detections,
   fps,
   sensitivity,
   ignoreMasksCount = 0,
   ignoredCount = 0,
 }) => {
-  const cameraDetections = detections.filter(
-    (d) => d.isCameraTarget && d.threatLevel === 'DANGER' && !d.isIgnored
-  );
-  const peopleDetections = detections.filter((d) => d.class.toLowerCase() === 'person');
+  const results = detections.filter((d) => !d.isIgnored);
+  const cameraCandidates = results.filter((d) => d.isCameraTarget && d.threatLevel === 'DANGER');
+  const observations = results.filter((d) => !d.isCameraTarget);
   const ignoredDetections = detections.filter((d) => d.isIgnored);
-
-  // Compute center-most candidate if multiple object candidates exist
-  let centerMostIndex = -1;
-  if (cameraDetections.length > 1) {
-    let minCenterDistSq = Infinity;
-    cameraDetections.forEach((d, idx) => {
-      const [bx, by, bw, bh] = d.bbox;
-      const cx = bx + bw / 2;
-      const cy = by + bh / 2;
-      const dSq = (cx - d.imageWidth / 2) ** 2 + (cy - d.imageHeight / 2) ** 2;
-      if (dSq < minCenterDistSq) {
-        minCenterDistSq = dSq;
-        centerMostIndex = idx;
-      }
-    });
-  }
 
   return (
     <div className="w-full rounded-2xl bg-slate-900/90 border border-slate-800 p-4 md:p-5 text-slate-200">
@@ -53,9 +36,6 @@ export const TelemetryPanel: React.FC<Props> = ({
           </h3>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
-          <span>
-            PEOPLE IN FRAME: <strong className="text-slate-200 tabular-nums">{peopleDetections.length}</strong>
-          </span>
           <span>
             FPS: <strong className="text-slate-200 tabular-nums">{fps}</strong>
           </span>
@@ -75,24 +55,19 @@ export const TelemetryPanel: React.FC<Props> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Model-supported camera-capable object candidates */}
+        {/* Camera-model matches are highlighted; all others remain neutral observations. */}
         <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800">
           <div className="flex items-center justify-between text-xs font-semibold mb-2">
-            <span className="text-red-400 flex items-center gap-1.5 font-mono">
-              <ShieldAlert className="w-4 h-4 text-red-500" />
-              CAMERA-CAPABLE DEVICE CANDIDATES ({cameraDetections.length})
+            <span className="text-slate-200 flex items-center gap-1.5 font-mono">
+              <Activity className="w-4 h-4 text-sky-400" />
+              CAMERA-LIKE CANDIDATES: {cameraCandidates.length} · OTHER OBSERVATIONS: {observations.length}
             </span>
-            {threatDetected && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-mono font-bold animate-pulse">
-                DANGER DETECTED
-              </span>
-            )}
           </div>
 
-          {cameraDetections.length === 0 ? (
+          {results.length === 0 ? (
             <div className="py-4 text-center font-mono text-xs text-slate-500 flex flex-col items-center justify-center gap-1">
               <Activity className="w-5 h-5 text-slate-500" />
-              <span>{isScanning ? 'No supported object candidates in this frame' : 'Scanner paused'}</span>
+              <span>{isScanning ? 'No objects or camera-like candidates identified in this frame' : 'Scanner paused'}</span>
               {ignoredDetections.length > 0 && (
                 <span className="text-[11px] text-amber-400/90 mt-1 flex items-center gap-1">
                   <ShieldOff className="w-3.5 h-3.5" />
@@ -102,18 +77,32 @@ export const TelemetryPanel: React.FC<Props> = ({
             </div>
           ) : (
             <div className="space-y-2 max-h-36 overflow-y-auto">
-              {cameraDetections.map((d, i) => (
+              {results.map((d, i) => (
                 <div
-                  key={i}
-                  className="p-2.5 rounded-lg bg-red-950/40 border border-red-500/50 text-xs font-mono"
+                  key={`${d.class}-${d.detectedAt}-${i}`}
+                  className={`p-2.5 rounded-lg text-xs font-mono ${
+                    d.isCameraTarget
+                      ? 'bg-red-950/40 border border-red-500/60'
+                      : 'bg-slate-900/70 border border-slate-700'
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2">
-                      <Crosshair className="w-4 h-4 text-red-400" />
-                      <span className="font-bold text-red-200">{d.label}</span>
+                      <Crosshair className={`w-4 h-4 ${d.isCameraTarget ? 'text-red-400' : 'text-sky-400'}`} />
+                      <span className={`font-bold ${d.isCameraTarget ? 'text-red-200' : 'text-slate-200'}`}>
+                        {d.label}
+                      </span>
                     </span>
-                    <span className="text-red-400 font-bold tabular-nums bg-red-950/80 px-2 py-0.5 rounded border border-red-800/40">
-                      {(d.score * 100).toFixed(1)}% MODEL SCORE
+                    <span className={`font-bold tabular-nums bg-slate-950/80 px-2 py-0.5 rounded border ${
+                      d.isCameraTarget
+                        ? 'text-red-300 border-red-800/60'
+                        : 'text-sky-300 border-slate-700'
+                    }`}>
+                      {d.scoreMeaning === 'visual-signal-strength'
+                        ? `${(d.score * 100).toFixed(0)}% VISUAL SIGNAL · NOT CAMERA CONFIDENCE`
+                        : d.scoreMeaning === 'open-vocabulary-model-score'
+                        ? `${(d.score * 100).toFixed(1)}% OPEN-VOCAB SCORE · UNCONFIRMED`
+                        : `${(d.score * 100).toFixed(1)}% MODEL SCORE · UNCONFIRMED`}
                     </span>
                   </div>
                   <div className="mt-1.5 pl-6 text-[10px] leading-relaxed text-slate-300">
@@ -151,19 +140,33 @@ export const TelemetryPanel: React.FC<Props> = ({
               <Camera className="w-4 h-4 text-emerald-400" />
               <span>ON-DEVICE OBJECT DETECTOR</span>
             </span>
-            <span className="text-emerald-400 text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-800/40">
-              ACTIVE
+            <span className={`text-[10px] px-1.5 py-0.2 rounded border ${
+              cameraModelReady
+                ? 'text-emerald-400 bg-emerald-950/80 border-emerald-800/40'
+                : 'text-amber-300 bg-amber-950/80 border-amber-800/40'
+            }`}>
+              {cameraModelReady ? 'CAMERA MODEL READY' : 'CAMERA MODEL NOT LOADED'}
             </span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Model Architecture:</span>
-            <span className="text-slate-200">COCO-SSD MobileNetV2 Lite · full-frame + optional tiles</span>
+            <span className="text-slate-200">COCO-SSD + optional Grounding DINO</span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
             <span>Target Filter:</span>
-            <span className="text-red-300 font-semibold">People · phones · laptops</span>
+            <span className="text-sky-300 font-semibold">COCO: phones · laptops (informational)</span>
+          </div>
+
+          <div className="py-1 border-b border-slate-900 text-slate-400">
+            {cameraModelReady
+              ? 'Grounding DINO uses a general camera text prompt for visible objects; it is not camera-specialist or validated for hidden-device detection. Scores can be wrong.'
+              : 'Load the optional camera model in the scanner controls to check for visible camera-like objects. Phone, laptop, reflection, and aperture detections are not camera alerts.'}
+          </div>
+
+          <div className="py-1 text-amber-300/90">
+            IR analysis unavailable: standard browser video does not expose infrared sensor capability or raw IR data. External IR-sensitive hardware is required.
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
